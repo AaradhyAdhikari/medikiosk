@@ -1,0 +1,15 @@
+{
+  "name": "medikiosk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI clinical history intake for AYUSH OPDs — SIH26047, Ministry of Ayush",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.3.0"
+  }
+}

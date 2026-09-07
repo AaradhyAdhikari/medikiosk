@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MediKiosk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&family=Tiro+Devanagari+Hindi&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<svg class="leafbg" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <defs><pattern id="lf" width="180" height="180" patternUnits="userSpaceOnUse" patternTransform="rotate(18)">
+    <path d="M90 20 C130 45 130 105 90 130 C50 105 50 45 90 20 Z M90 20 L90 130" fill="none" stroke="#8FD3B8" stroke-width="1.6"/>
+    <path d="M90 45 L112 60 M90 45 L68 60 M90 72 L116 88 M90 72 L64 88 M90 99 L108 111 M90 99 L72 111" stroke="#8FD3B8" stroke-width="1.1" fill="none"/>
+  </pattern></defs>
+  <rect width="100%" height="100%" fill="url(#lf)"/>
+</svg>
+
+<main class="stage">
+  <div class="roles">
+    <h1>MediKiosk</h1>
+    <p class="tag">AI clinical history intake for AYUSH OPDs. The patient records their history and scans their old
+      reports before consultation; the doctor reads a verified, structured summary the moment they walk in.</p>
+    <div class="rolegrid">
+      <a class="role" href="/kiosk">
+        <span class="ic"><svg class="ic" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.5" r="3.8"/><path d="M4.5 21v-1.5A5.5 5.5 0 0 1 10 14h4a5.5 5.5 0 0 1 5.5 5.5V21"/></svg></span>
+        <b>I am a Patient</b>
+        <span class="d">Answer a few questions by speaking or tapping, and scan your old reports. About four minutes.</span>
+        <em>OPD KIOSK →</em>
+      </a>
+      <a class="role" href="/doctor">
+        <span class="ic"><svg class="ic" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v5a4.5 4.5 0 0 0 9 0V3"/><path d="M4 3h3M13.5 3h3"/><path d="M10.5 12.5v2.5a5 5 0 0 0 10 0v-1.2"/><circle cx="20.5" cy="11.5" r="2"/></svg></span>
+        <b>I am a Doctor</b>
+        <span class="d">See the live OPD queue, read structured histories with their sources, and prescribe.</span>
+        <em>CONSULTATION CONSOLE →</em>
+      </a>
+      <a class="role" href="/about">
+        <span class="ic"><svg class="ic" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20c-4.5 0-8-2.8-8-6 0-1 .4-1.9 1-2.6 1.6.4 3 1.3 4 2.4"/><path d="M12 20c4.5 0 8-2.8 8-6 0-1-.4-1.9-1-2.6-1.6.4-3 1.3-4 2.4"/><path d="M12 20c-2.4-1.8-4-4.4-4-7 0-2.4 1.5-4.8 4-6.8 2.5 2 4 4.4 4 6.8 0 2.6-1.6 5.2-4 7Z"/></svg></span>
+        <b>How it works</b>
+        <span class="d">The intake loop, the Ayurveda module, and what is real versus mocked in this build.</span>
+        <em>OVERVIEW →</em>
+      </a>
+    </div>
+  </div>
+</main>
+<div class="demo-tag">Prototype · SIH26047 · not a live service</div>
+</body>
+</html>

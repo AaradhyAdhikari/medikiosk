@@ -1,0 +1,92 @@
+MediKiosk — how to start it
+SIH26047 · Ministry of Ayush
+
+
+THE ONE THING TO UNDERSTAND
+───────────────────────────
+Double-clicking index.html does NOT work, and never will.
+
+That file is only the picture. The part that actually does the work — checking
+codes, saving the interview, moving the patient onto the doctor's screen — runs
+in a small server. Start the server, and the browser opens by itself.
+
+A black window will appear. That window IS the app. Minimise it. Do not close
+it, and do not press Ctrl+C in it — either one stops everything.
+
+
+WINDOWS — pick whichever works
+──────────────────────────────
+1. Double-click  START-WINDOWS.bat
+
+   If Windows says "blocked by Smart App Control", use option 2 instead.
+   Do NOT turn Smart App Control off — switching it back on later needs a
+   full Windows reinstall.
+
+2. Open this folder in File Explorer.
+   Click the address bar at the top (where the folder path is shown).
+   Type   cmd   over it and press Enter.
+   In the black window that opens, type:
+
+       node server.js
+
+   This always works. Smart App Control has no objection, because you are
+   running Node — a signed, recognised program — not an unsigned script.
+
+3. Make a one-click shortcut (do this once, use it forever):
+       Right-click inside this folder → New → Shortcut
+       Location:  node server.js
+       Name:      Start MediKiosk
+   Then right-click the new shortcut → Properties → "Start in" →
+   paste the full path to this folder (for example C:\medikiosk\mk).
+
+
+MAC
+───
+Double-click  START-MAC.command
+
+If macOS refuses, right-click it → Open → Open again. Once only.
+Or open Terminal, type  cd  followed by a space, drag this folder into the
+window, press Enter, then type:
+
+    node server.js
+
+
+FIRST TIME? CHECK NODE FIRST
+────────────────────────────
+In a terminal, run:
+
+    node -v
+
+You need v18 or higher. If it errors, install the LTS version from nodejs.org,
+then CLOSE every terminal window and open a fresh one before trying again.
+
+
+WHAT HAPPENS NEXT
+─────────────────
+Your browser opens at http://localhost:3000 on its own.
+
+  /doctor   register the first clinician account (auto-approved)
+  /kiosk    the patient interview
+
+Open those two in separate windows, side by side. Submit an interview on the
+kiosk and watch the patient appear on the doctor's screen within four seconds.
+That is the demo.
+
+
+IF SOMETHING GOES WRONG
+───────────────────────
+"node is not recognized"
+    Node is not installed, or your terminal was open before you installed it.
+    Close every terminal, open a new one, try again.
+
+"Cannot find module ... server.js"
+    The terminal is not in this folder. Use the address-bar method above.
+
+"already running on port 3000"
+    It is already open. The browser will be reopened for you automatically.
+
+The page will not load
+    Check the black window is still open and still showing the startup box.
+
+Start completely fresh
+    Stop the app, delete the "data" folder, start it again.
