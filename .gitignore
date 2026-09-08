@@ -2,3 +2,16 @@ data/
 .env
 *.log
 node_modules/
+
+# Firebase service-account private keys. Committing one hands anyone who can
+# read the repo full admin access to the database and storage bucket.
+firebase-service-account.json
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+
+# Evaluation corpora and their results. Third-party datasets under their own
+# licences — they are fetched, never vendored. eval/data/prescriptions/ holds
+# real prescription scans with no consent statement; it must never be
+# committed, and must never reach Firebase.
+eval/data/
+eval/report/
