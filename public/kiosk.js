@@ -118,6 +118,13 @@ function speak(text) {
 }
 function listen(onPartial, onFinal) {
   if (!SR) { onFinal && onFinal(""); return; }
+  
+  // Clean up any existing recognition instance first
+  if (rec) {
+    try { rec.abort(); } catch (e) {}
+    rec = null;
+  }
+  
   try {
     rec = new SR();
     rec.lang = S.lang === "hi" ? "hi-IN" : "en-IN";
@@ -129,12 +136,29 @@ function listen(onPartial, onFinal) {
       for (var i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
       best = t; onPartial && onPartial(t);
     };
-    rec.onerror = function () { recOn = false; onFinal && onFinal(best); };
+    rec.onerror = function (err) { 
+      // Log error for debugging
+      console.warn("Speech recognition error:", err.error);
+      recOn = false; 
+      onFinal && onFinal(best); 
+    };
     rec.onend = function () { recOn = false; onFinal && onFinal(best); };
     rec.start(); recOn = true;
-  } catch (e) { recOn = false; onFinal && onFinal(""); }
+  } catch (e) { 
+    console.error("Failed to start speech recognition:", e);
+    recOn = false; 
+    onFinal && onFinal(""); 
+  }
 }
-function stopListen() { try { rec && rec.stop(); } catch (e) {} recOn = false; }
+function stopListen() { 
+  try { 
+    if (rec) {
+      rec.abort(); // Use abort() instead of stop() for immediate cleanup
+      rec = null;
+    }
+  } catch (e) {} 
+  recOn = false; 
+}
 
 /* ── image downscale ────────────────────────────────── */
 
