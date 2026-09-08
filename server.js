@@ -65,9 +65,32 @@ try {
   const { getDatabase } = require("firebase-admin/database");
   const { getStorage } = require("firebase-admin/storage");
   
+  let serviceAccount;
+  
+  // Try loading from file first (local development)
   const serviceAccountPath = path.join(ROOT, "firebase-service-account.json");
   if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+    serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+  } 
+  // Otherwise try environment variable (Vercel deployment)
+  else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } catch (e) {
+      console.warn("  ✗ FIREBASE_SERVICE_ACCOUNT env var is not valid JSON");
+    }
+  }
+  // Or try individual environment variables
+  else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+    serviceAccount = {
+      type: "service_account",
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      client_email: process.env.FIREBASE_CLIENT_EMAIL
+    };
+  }
+  
+  if (serviceAccount && process.env.FIREBASE_DB_URL) {
     admin.initializeApp({
       credential: admin.cert(serviceAccount),
       databaseURL: process.env.FIREBASE_DB_URL,
@@ -78,9 +101,15 @@ try {
       firebaseBucket = getStorage().bucket();
     }
     console.log("  Firebase Admin initialized.");
+  } else if (process.env.VERCEL) {
+    console.warn("  ✗ Firebase not configured - REQUIRED for Vercel deployment!");
+    console.warn("     Add FIREBASE_DB_URL and FIREBASE_SERVICE_ACCOUNT to Vercel environment variables");
   }
 } catch (e) {
   console.warn("  ✗ Firebase init failed:", e.message);
+  if (process.env.VERCEL) {
+    console.warn("     Firebase is REQUIRED for Vercel - check your environment variables");
+  }
 }
 
 async function loadStore() {

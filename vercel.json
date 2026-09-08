@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "env": {
+    "NODE_ENV": "production",
+    "VERCEL": "1"
+  },
+  "build": {
+    "env": {
+      "NODE_ENV": "production"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/server.js"
+    }
+  ]
+}
