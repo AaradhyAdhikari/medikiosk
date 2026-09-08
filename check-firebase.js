@@ -83,11 +83,18 @@ console.log();
 // Check 3: Firebase Connection
 console.log("3️⃣  Testing Firebase connection...");
 
-const admin = require("firebase-admin");
+let admin;
+try {
+  admin = require("firebase-admin");
+} catch (e) {
+  console.log("❌ firebase-admin module not found");
+  console.log("   Run: npm install firebase-admin\n");
+  process.exit(1);
+}
 
 try {
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.cert(serviceAccount),
     databaseURL: dbUrl,
     storageBucket: storageBucket
   });
@@ -101,7 +108,8 @@ try {
 // Check 4: Database Read/Write Test
 console.log("4️⃣  Testing database read/write...");
 
-const db = admin.database();
+const { getDatabase } = require("firebase-admin/database");
+const db = getDatabase();
 const testRef = db.ref('_connection_test');
 
 (async () => {

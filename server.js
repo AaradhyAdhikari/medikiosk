@@ -56,22 +56,26 @@ const HOSPITAL = process.env.HOSPITAL_NAME || "All India Institute of Ayurveda";
 const EMPTY = { patients: [], clinicians: [], visits: [], documents: [], events: [], otps: [], seeded: false };
 let store = null;
 
-const admin = require("firebase-admin");
+let admin = null;
 let firebaseDb = null;
 let firebaseBucket = null;
 
 try {
+  admin = require("firebase-admin");
+  const { getDatabase } = require("firebase-admin/database");
+  const { getStorage } = require("firebase-admin/storage");
+  
   const serviceAccountPath = path.join(ROOT, "firebase-service-account.json");
   if (fs.existsSync(serviceAccountPath)) {
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.cert(serviceAccount),
       databaseURL: process.env.FIREBASE_DB_URL,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET
     });
-    firebaseDb = admin.database();
+    firebaseDb = getDatabase();
     if (process.env.FIREBASE_STORAGE_BUCKET) {
-      firebaseBucket = admin.storage().bucket();
+      firebaseBucket = getStorage().bucket();
     }
     console.log("  Firebase Admin initialized.");
   }
