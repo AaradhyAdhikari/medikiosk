@@ -1,0 +1,43 @@
+🔑 GET YOUR FIREBASE SERVICE ACCOUNT KEY
+==========================================
+
+Your Firebase Database URL is configured: 
+https://medikiosk-25458-default-rtdb.asia-southeast1.firebasedatabase.app/
+
+Now you need to download the service account key:
+
+STEP 1: Go to Firebase Console
+→ https://console.firebase.google.com/project/medikiosk-25458/settings/serviceaccounts/adminsdk
+
+STEP 2: Click "Generate new private key"
+
+STEP 3: Click "Generate key" in the confirmation popup
+        (A JSON file will download)
+
+STEP 4: Rename the downloaded file to: firebase-service-account.json
+
+STEP 5: Move it to this project folder (same folder as server.js)
+
+STEP 6: Test the connection:
+        Run: node check-firebase.js
+        Or double-click: firebase-quickstart.bat
+
+STEP 7: Start your server:
+        Run: node server.js
+
+⚠️ SECURITY WARNING:
+- NEVER commit firebase-service-account.json to Git
+- NEVER share this file publicly
+- It's already in .gitignore for safety
+
+The file should look like this:
+{
+  "type": "service_account",
+  "project_id": "medikiosk-25458",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+  "client_email": "firebase-adminsdk-xxxxx@medikiosk-25458.iam.gserviceaccount.com",
+  ...
+}
+
+✅ Once you have that file, everything will work automatically!
