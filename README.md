@@ -238,6 +238,35 @@ Claiming otherwise and being caught does not.
 
 ---
 
+# Firebase Realtime Database (Optional)
+
+Your app is **already configured** to use Firebase Realtime Database for real-time data sync across multiple devices and doctors.
+
+**Quick Setup:**
+
+1. **Create Firebase Project:** [console.firebase.google.com](https://console.firebase.google.com)
+2. **Enable Realtime Database:** Database → Create Database → Test mode
+3. **Download Service Account:** Project Settings → Service Accounts → Generate new private key
+4. **Rename & Move:** Rename downloaded JSON to `firebase-service-account.json` and place in project root
+5. **Configure .env:**
+   ```env
+   FIREBASE_DB_URL=https://your-project-id.firebaseio.com
+   FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
+   ```
+6. **Test Connection:** Run `node check-firebase.js` or double-click `firebase-quickstart.bat`
+7. **Start Server:** `node server.js`
+
+📖 **Full Guide:** See [FIREBASE-SETUP.md](FIREBASE-SETUP.md) for detailed instructions.
+
+**Benefits:**
+- ✅ Real-time sync across multiple doctor terminals
+- ✅ Live queue updates
+- ✅ Cloud backup of all data
+- ✅ Optional: Store uploaded images in Firebase Storage
+- ✅ Falls back to local `db.json` if Firebase is unavailable
+
+---
+
 # Everyday things
 
 **Reset completely.** Delete the `data` folder. Next start is a fresh install again — no accounts,
