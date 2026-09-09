@@ -249,6 +249,11 @@ function editLine(t, v, field) {
     '<dd><textarea class="amend" data-f="' + field + '" rows="2">' + esc(v || "") + "</textarea></dd></div>";
 }
 
+/* Visits recorded before the kiosk asked this question carry no system, and
+   those were all full Ayurvedic intakes — so that is what they read as. */
+var SYSTEM_LABEL = { AYURVEDIC: "Ayurvedic", ALLOPATHIC: "Allopathic", BOTH: "Ayurvedic + allopathic" };
+function sysOf(v) { return SYSTEM_LABEL[v && v.system] ? v.system : "AYURVEDIC"; }
+
 function renderCase() {
   var v = D.visit, s = v.summary || {}, a = s.ayurveda || {};
   var pk = a.prakriti || { vata: 33, pitta: 33, kapha: 34 };
@@ -259,7 +264,8 @@ function renderCase() {
     "<div><h2>" + esc(v.patient.name) + (v.patient.ageYears ? ", " + v.patient.ageYears : "") +
       ' · <span class="mono">' + esc(v.token) + "</span></h2>" +
     '<div class="sub mono">ABHA ' + esc(v.patient.abhaNumber || "—") + " · " +
-      (v.visitType === "FOLLOW_UP" ? "Follow-up" : "First visit") + "</div></div>" +
+      (v.visitType === "FOLLOW_UP" ? "Follow-up" : "First visit") +
+      " · " + SYSTEM_LABEL[sysOf(v)] + "</div></div>" +
     '<span class="spacer"></span>' + (v.redFlag ? '<span class="badge red">Red flag</span>' : "") + "</div>" +
 
     '<div class="dbody">' +
@@ -371,28 +377,34 @@ function renderCase() {
           "follow-up interview starts from this.</p></div>" +
       "</div><div>" +
 
-        '<div class="panel"><h3 class="dev" style="font-size:15px;letter-spacing:0;text-transform:none;color:var(--jade)">प्रकृति · Prakriti indicators</h3>' +
-          '<div class="dosha">' +
-            '<div style="width:' + pk.vata + '%;background:#5B8FB9">V ' + pk.vata + "%</div>" +
-            '<div style="width:' + pk.pitta + '%;background:#C8891F">P ' + pk.pitta + "%</div>" +
-            '<div style="width:' + pk.kapha + '%;background:#1F8A70">K ' + pk.kapha + "%</div>" +
-          "</div>" +
-          (a.dashavidha && a.dashavidha.length
-            ? '<table class="dvtable"><thead><tr><th>परीक्षा</th><th>Reported</th></tr></thead><tbody>' +
-              a.dashavidha.map(function (d) {
-                return "<tr" + (d.elicited === false ? ' class="miss"' : "") + "><td>" + esc(d.parameter) + "</td><td>" +
-                  esc(d.finding || "Not elicited") + "</td></tr>";
-              }).join("") + "</tbody></table>" +
-              '<p style="font-size:12px;color:var(--muted);margin:6px 0 0">' +
-              a.dashavidha.filter(function (d) { return d.elicited !== false; }).length +
-              " of 10 elicited at the kiosk.</p>"
-            : "") +
-          '<div class="hline" style="margin-top:12px"><dt>Agni</dt><dd>' + esc(a.agni || "Not assessed") + "</dd></div>" +
-          (a.koshtha ? '<div class="hline"><dt>Koshtha</dt><dd>' + esc(a.koshtha) + "</dd></div>" : "") +
-          (a.aharaVihara ? '<div class="hline"><dt>Ahara-Vihara</dt><dd>' + esc(a.aharaVihara) + "</dd></div>" : "") +
-          (a.considerations ? '<div class="hline"><dt>Considerations</dt><dd>' + esc(a.considerations) + "</dd></div>" : "") +
-          '<p style="font-size:13px;color:var(--muted);margin:8px 0 0;line-height:1.5">' +
-            esc(a.note || "Screening indication from a kiosk interview. Not a substitute for your own examination.") + "</p></div>" +
+        (sysOf(v) === "ALLOPATHIC"
+          ? '<div class="panel"><h3>Ayurvedic examination</h3>' +
+            '<p style="font-size:13px;color:var(--muted);margin:0;line-height:1.5">This patient chose ' +
+            'allopathic treatment, so the Dashavidha Pariksha was not asked at the kiosk. Nothing was ' +
+            'skipped by mistake, and nothing here has been inferred.</p></div>'
+          :
+          '<div class="panel"><h3 class="dev" style="font-size:15px;letter-spacing:0;text-transform:none;color:var(--jade)">प्रकृति · Prakriti indicators</h3>' +
+            '<div class="dosha">' +
+              '<div style="width:' + pk.vata + '%;background:#5B8FB9">V ' + pk.vata + "%</div>" +
+              '<div style="width:' + pk.pitta + '%;background:#C8891F">P ' + pk.pitta + "%</div>" +
+              '<div style="width:' + pk.kapha + '%;background:#1F8A70">K ' + pk.kapha + "%</div>" +
+            "</div>" +
+            (a.dashavidha && a.dashavidha.length
+              ? '<table class="dvtable"><thead><tr><th>परीक्षा</th><th>Reported</th></tr></thead><tbody>' +
+                a.dashavidha.map(function (d) {
+                  return "<tr" + (d.elicited === false ? ' class="miss"' : "") + "><td>" + esc(d.parameter) + "</td><td>" +
+                    esc(d.finding || "Not elicited") + "</td></tr>";
+                }).join("") + "</tbody></table>" +
+                '<p style="font-size:12px;color:var(--muted);margin:6px 0 0">' +
+                a.dashavidha.filter(function (d) { return d.elicited !== false; }).length +
+                " of 10 elicited at the kiosk.</p>"
+              : "") +
+            '<div class="hline" style="margin-top:12px"><dt>Agni</dt><dd>' + esc(a.agni || "Not assessed") + "</dd></div>" +
+            (a.koshtha ? '<div class="hline"><dt>Koshtha</dt><dd>' + esc(a.koshtha) + "</dd></div>" : "") +
+            (a.aharaVihara ? '<div class="hline"><dt>Ahara-Vihara</dt><dd>' + esc(a.aharaVihara) + "</dd></div>" : "") +
+            (a.considerations ? '<div class="hline"><dt>Considerations</dt><dd>' + esc(a.considerations) + "</dd></div>" : "") +
+            '<p style="font-size:13px;color:var(--muted);margin:8px 0 0;line-height:1.5">' +
+              esc(a.note || "Screening indication from a kiosk interview. Not a substitute for your own examination.") + "</p></div>") +
 
         '<div class="panel" style="margin-top:16px"><h3>Patient\'s documents · oldest first</h3><div class="doclist">' +
           (docs.length ? docs.map(function (d) {

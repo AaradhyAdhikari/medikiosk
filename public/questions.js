@@ -289,12 +289,42 @@ window.FOLLOW_UP = [
 
 /* ─────────────────────────── helpers ─────────────────────────── */
 
-// The full first-visit interview, in order.
-window.firstVisitQuestions = function () {
-  return window.CLINICAL
-    .concat(window.DASHAVIDHA)
-    .concat(window.AGNI_KOSHTHA)
-    .concat(window.AHARA_VIHARA);
+/* ── system of medicine ─────────────────────────────
+   Asked once, before the interview starts. An AYUSH OPD sees patients who
+   want Ayurvedic treatment, patients who want allopathic treatment, and
+   patients who want both — and the physician needs to know which before
+   reading the history.
+
+   The CLINICAL block is asked in every case. The presenting complaint,
+   current medicines and allergies are safety information, not a feature of
+   one system: an Ayurvedic physician still needs to know what allopathic
+   drugs the patient is on. Only the sixteen Ayurvedic questions vary. */
+window.SYSTEMS = [
+  { id: "AYURVEDIC", ic: "lotus",
+    hi: "आयुर्वेदिक", en: "Ayurvedic",
+    dHi: "दशविध परीक्षा सहित · लगभग 4 मिनट", dEn: "Includes Dashavidha Pariksha · about 4 minutes" },
+  { id: "ALLOPATHIC", ic: "pill",
+    hi: "एलोपैथिक", en: "Allopathic",
+    dHi: "सिर्फ़ सामान्य जाँच · लगभग 2 मिनट", dEn: "Standard history only · about 2 minutes" },
+  { id: "BOTH", ic: "balance",
+    hi: "दोनों", en: "Both",
+    dHi: "दोनों पद्धतियाँ · लगभग 4 मिनट", dEn: "Integrative · about 4 minutes" },
+];
+
+window.systemMeta = function (id) {
+  return window.SYSTEMS.filter(function (s) { return s.id === id; })[0] || window.SYSTEMS[0];
+};
+
+// Does this system of medicine want the Ayurvedic examination?
+window.wantsAyurveda = function (system) { return system !== "ALLOPATHIC"; };
+
+// The full first-visit interview, in order, for the chosen system of medicine.
+window.firstVisitQuestions = function (system) {
+  var qs = window.CLINICAL.slice();
+  if (window.wantsAyurveda(system)) {
+    qs = qs.concat(window.DASHAVIDHA).concat(window.AGNI_KOSHTHA).concat(window.AHARA_VIHARA);
+  }
+  return qs;
 };
 
 // Journey rail sections, in order.

@@ -8,7 +8,8 @@ var S = {
   name: "", ageYears: "", sex: "", heightCm: "", weightKg: "",
   maskedPhone: "", knownName: "",
   consent: { record: true, docs: true, share: true, locker: false },
-  visit: null, step: 0, answers: {}, docs: [], summary: null, abha: null,
+  visit: null, visitType: null, system: null,
+  step: 0, answers: {}, docs: [], summary: null, abha: null,
   busy: false, error: "", notice: "",
   startedAt: Date.now(),
 
@@ -49,7 +50,8 @@ function esc(s) {
   });
 }
 function questions() {
-  return S.visit && S.visit.visitType === "FOLLOW_UP" ? window.FOLLOW_UP : window.firstVisitQuestions();
+  if (S.visit && S.visit.visitType === "FOLLOW_UP") return window.FOLLOW_UP;
+  return window.firstVisitQuestions((S.visit && S.visit.system) || S.system);
 }
 
 /* ── document timeline ──────────────────────────────
@@ -267,7 +269,7 @@ function render() {
 
   ({
     lang: scLang, identify: scIdentify, phone: scPhone, abha: scAbha, aadhaar: scAadhaar,
-    otp: scOtp, profile: scProfile, consent: scConsent, visit: scVisit,
+    otp: scOtp, profile: scProfile, consent: scConsent, visit: scVisit, system: scSystem,
     q: scQuestion, red: scRed, docs: scDocs, think: scThink, review: scReview, done: scDone,
     a11y: scA11y,
     signin: scSignin, account: scAccount, accountdone: scAccountDone, dash: scDash,
@@ -355,7 +357,7 @@ function scA11y() {
 
 /* ── identify: three doors ────────────────────────── */
 function scIdentify() {
-  body.innerHTML = steps(0, 7) +
+  body.innerHTML = steps(0, 8) +
     '<span class="eyebrow">' + L("पहचान", "Identify") + "</span>" +
     '<h1 class="q">' + L("आप अपनी पहचान कैसे बताएँगी?", "How would you like to identify yourself?") + "</h1>" +
     '<p class="q-en">' + L("तीनों में से कोई भी तरीक़ा चलेगा", "Any one of these three works") + "</p>" +
@@ -444,7 +446,7 @@ function scAbha() {
   var shown = v.replace(/(\d{2})(\d{0,4})(\d{0,4})(\d{0,4})/, function (m, a, b2, c, d) {
     return [a, b2, c, d].filter(Boolean).join("-");
   }) || "—";
-  body.innerHTML = steps(1, 7) +
+  body.innerHTML = steps(1, 8) +
     '<span class="eyebrow">' + L("पहचान", "Identify") + " · ABHA</span>" +
     '<h1 class="q">' + L("अपना ABHA नंबर डालिए", "Enter your ABHA number") + "</h1>" +
     '<p class="q-en">' + L("आयुष्मान भारत हेल्थ अकाउंट · 14 अंक", "Ayushman Bharat Health Account · 14 digits") + "</p>" +
@@ -484,7 +486,7 @@ function scAbha() {
 
 /* ── Aadhaar entry ────────────────────────────────── */
 function scAadhaar() {
-  body.innerHTML = steps(1, 7) +
+  body.innerHTML = steps(1, 8) +
     '<span class="eyebrow">' + L("पहचान", "Identify") + " · " + L("आधार", "Aadhaar") + "</span>" +
     '<h1 class="q">' + L("आधार और मोबाइल नंबर", "Aadhaar and mobile number") + "</h1>" +
     '<p class="q-en">' + L("आधार से जुड़ा मोबाइल नंबर डालिए", "Enter the mobile linked to your Aadhaar") + "</p>" +
@@ -523,7 +525,7 @@ function scAadhaar() {
 
 /* ── new-patient profile ──────────────────────────── */
 function scProfile() {
-  body.innerHTML = steps(3, 7) +
+  body.innerHTML = steps(3, 8) +
     '<span class="eyebrow">' + L("आपका परिचय", "About you") + "</span>" +
     '<h1 class="q">' + L("थोड़ा अपने बारे में बताइए", "Tell us a little about you") + "</h1>" +
     '<p class="q-en">' + L("यह डॉक्टर को आपकी जाँच में मदद करता है", "This helps the doctor read your results correctly") + "</p>" +
@@ -573,7 +575,7 @@ function scAccount() {
   var weak = S.newPw && S.newPw.length < 6;
   var mismatch = S.newPw2 && S.newPw !== S.newPw2;
 
-  body.innerHTML = steps(3, 7) +
+  body.innerHTML = steps(3, 8) +
     '<span class="eyebrow">' + L("आपका खाता", "Your account") + "</span>" +
     '<h1 class="q">' + (S.hasAccount
       ? L("पासवर्ड बदलिए", "Change your password")
@@ -794,7 +796,7 @@ function scDash() {
 }
 
 function scPhone() {
-  body.innerHTML = steps(1, 7) +
+  body.innerHTML = steps(1, 8) +
     '<span class="eyebrow">' + L("पहचान", "Identify") + "</span>" +
     '<h1 class="q">' + L("अपना मोबाइल नंबर डालिए", "Enter your mobile number") + "</h1>" +
     '<div class="field mono" id="ph" style="text-align:center;font-size:30px;letter-spacing:.14em">' + (S.phone || "—") + "</div>" +
@@ -835,7 +837,7 @@ function scPhone() {
 }
 
 function scOtp() {
-  body.innerHTML = steps(2, 7) +
+  body.innerHTML = steps(2, 8) +
     '<span class="eyebrow">' + L("पहचान", "Identify") + "</span>" +
     '<h1 class="q">' + (S.knownName
       ? L("नमस्ते " + S.knownName, "Welcome back, " + S.knownName)
@@ -900,7 +902,7 @@ function scOtp() {
 }
 
 function scConsent() {
-  body.innerHTML = steps(4, 7) +
+  body.innerHTML = steps(4, 8) +
     '<span class="eyebrow">' + L("सहमति", "Consent") + " · DPDP Act 2023</span>" +
     '<h1 class="q">' + L("आपकी अनुमति ज़रूरी है", "Your permission, your choice") + "</h1>" +
     '<p class="q-en">' + L("आप कोई भी अनुमति बंद कर सकते हैं, फिर भी डॉक्टर आपको देखेंगे।",
@@ -938,7 +940,7 @@ function scVisit() {
     ["PROXY", "people", "मैं किसी और के लिए आया हूँ", "I am here for someone else", "परिजन के रूप में जवाब दें", "Answer as their family member"],
     ["EMERGENCY", "alert", "आपात स्थिति", "This is an emergency", "सीधे स्टाफ़ को सूचना", "Alerts triage staff immediately"],
   ];
-  body.innerHTML = steps(5, 7) +
+  body.innerHTML = steps(5, 8) +
     '<span class="eyebrow">' + L("आपकी विज़िट", "Your visit") + "</span>" +
     '<h1 class="q">' + L("आप पहली बार आए हैं?", "Is this your first visit?") + "</h1>" +
     (S.error ? '<div class="notice" style="margin-bottom:12px">' + esc(S.error) + "</div>" : "") +
@@ -947,16 +949,51 @@ function scVisit() {
         esc(L(o[2], o[3])) + '<small>' + esc(L(o[4], o[5])) + "</small></span></button>";
     }).join("") + "</div>";
 
-  body.onclick = async function (e) {
+  body.onclick = function (e) {
     var b = e.target.closest("[data-i]"); if (!b || S.busy) return;
-    var type = opts[+b.dataset.i][0];
-    S.busy = true; S.error = "";
-    try {
-      var r = await api("/api/visits", { visitType: type, consent: S.consent });
-      S.visit = r.visit; S.step = 0; S.busy = false;
-      go(type === "EMERGENCY" ? "red" : "q");
-    } catch (err) { S.error = err.message; S.busy = false; render(); }
+    S.visitType = opts[+b.dataset.i][0];
+    S.error = "";
+    // An emergency is not made to sit through a choice of system first.
+    if (S.visitType === "EMERGENCY") return startVisit("AYURVEDIC");
+    go("system");
   };
+}
+
+/* Creating the visit is deferred until the system of medicine is known, so the
+   record carries both from the moment it exists and there is no second write. */
+async function startVisit(system) {
+  S.busy = true; S.error = ""; S.system = system;
+  try {
+    var r = await api("/api/visits", { visitType: S.visitType, system: system, consent: S.consent });
+    S.visit = r.visit; S.step = 0; S.busy = false;
+    go(S.visitType === "EMERGENCY" ? "red" : "q");
+  } catch (err) { S.error = err.message; S.busy = false; render(); }
+}
+
+/* ── which system of medicine ───────────────────────
+   SIH26047 is an AYUSH problem statement, so Ayurvedic is offered first and is
+   what a patient who simply taps on gets. Choosing allopathic drops the
+   sixteen Ayurvedic questions; it never drops the complaint, the current
+   medicines or the allergies. */
+function scSystem() {
+  body.innerHTML = steps(6, 8) +
+    '<span class="eyebrow">' + L("इलाज की पद्धति", "System of medicine") + "</span>" +
+    '<h1 class="q">' + L("आप किस पद्धति से इलाज चाहते हैं?", "Which kind of treatment would you like?") + "</h1>" +
+    '<p class="q-en">' + L("डॉक्टर इसी के अनुसार आपकी जानकारी देखेंगे।",
+      "This decides what we ask you, and how your history reaches the doctor.") + "</p>" +
+    (S.error ? '<div class="notice" style="margin-bottom:12px">' + esc(S.error) + "</div>" : "") +
+    '<div class="chips">' + window.SYSTEMS.map(function (o, i) {
+      return '<button class="chip" data-i="' + i + '">' + ICON(o.ic, 26) + "<span>" +
+        esc(L(o.hi, o.en)) + "<small>" + esc(L(o.dHi, o.dEn)) + "</small></span></button>";
+    }).join("") + "</div>";
+
+  foot.innerHTML = '<button class="btn ghost" id="bk">← ' + L("पीछे", "Back") + "</button>";
+
+  body.onclick = function (e) {
+    var b = e.target.closest("[data-i]"); if (!b || S.busy) return;
+    startVisit(window.SYSTEMS[+b.dataset.i].id);
+  };
+  document.getElementById("bk").onclick = function () { S.error = ""; go("visit"); };
 }
 
 var FACES = [["बिल्कुल नहीं","None"],["थोड़ी","Mild"],["ठीक-ठाक","Moderate"],["ज़्यादा","Severe"],["बर्दाश्त नहीं","Unbearable"]];
@@ -1166,7 +1203,7 @@ function scQuestion() {
   function runCommand(cmd) {
     if (cmd === "repeat") return speak(L(q.hi, q.en));
     if (cmd === "help") return document.getElementById("btn-help").click();
-    if (cmd === "back") return S.step === 0 ? go("visit") : (S.step--, go("q"));
+    if (cmd === "back") return S.step === 0 ? go("system") : (S.step--, go("q"));
     if (cmd === "skip") return S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q"));
     if (cmd === "next") {
       if (!hasAns(q)) return speak(L("पहले जवाब दीजिए।", "Please answer first."));
@@ -1178,7 +1215,7 @@ function scQuestion() {
     if (window.isRedFlag(S.answers[q.id]) || window.isRedFlag(S.answers["_other_" + q.id])) { S.visit.redFlag = true; return go("red"); }
     S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q"));
   };
-  document.getElementById("bk").onclick = function () { S.step === 0 ? go("visit") : (S.step--, go("q")); };
+  document.getElementById("bk").onclick = function () { S.step === 0 ? go("system") : (S.step--, go("q")); };
   document.getElementById("sk").onclick = function () { S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q")); };
 
   if (VOICE_OUT) setTimeout(function () { speak(L(q.hi, q.en)); }, 280);
@@ -1206,7 +1243,7 @@ function scRed() {
 }
 
 function scDocs() {
-  body.innerHTML = steps(6, 7) +
+  body.innerHTML = steps(7, 8) +
     '<span class="eyebrow">' + L("पुराने काग़ज़ात","Your documents") + "</span>" +
     '<h1 class="q">' + L("पुरानी रिपोर्ट या पर्ची स्कैन कीजिए", "Scan your old reports and prescriptions") + "</h1>" +
     '<p class="q-en">' + L("एक-एक करके काग़ज़ सीधा रखिए", "Place each paper flat, one at a time") + "</p>" +

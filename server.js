@@ -517,7 +517,52 @@ async function readDocumentAI(dataUrl) {
   return parseJson(text);
 }
 
-async function buildSummaryAI({ answers, documents, visitType, prior }) {
+/* ── system of medicine ───────────────────────────────────────────────
+   The patient chooses Ayurvedic, allopathic or both at the kiosk. An
+   allopathic intake never reaches the sixteen Ayurvedic questions, so the
+   model must not be asked for Dashavidha findings it has no data for — an
+   invented dosha reading in a physician's summary is worse than a blank. */
+const SYSTEMS = ["AYURVEDIC", "ALLOPATHIC", "BOTH"];
+
+const SYSTEM_BRIEF = {
+  ALLOPATHIC:
+    "SYSTEM OF MEDICINE: the patient asked for ALLOPATHIC treatment and was NOT asked the Ayurvedic " +
+    "questions. There is no Dashavidha, dosha or Agni data in this history. Do not produce any. " +
+    "Return null for the ayurveda key.\n\n",
+  AYURVEDIC:
+    "SYSTEM OF MEDICINE: the patient asked for AYURVEDIC treatment and answered the full Dashavidha " +
+    "Pariksha. The physician will read this history in Ayurvedic terms.\n\n",
+  BOTH:
+    "SYSTEM OF MEDICINE: the patient asked for BOTH Ayurvedic and allopathic treatment and answered the " +
+    "full Dashavidha Pariksha. Write for an integrative consultation — hold the biomedical and the " +
+    "Ayurvedic reading side by side rather than choosing between them.\n\n",
+};
+
+const AYURVEDA_SPEC_FULL =
+  ' "ayurveda": {\n' +
+  '    "prakriti": {"vata": number, "pitta": number, "kapha": number} summing to 100,\n' +
+  '    "dashavidha": array of {"parameter": one of "Prakriti","Vikriti","Sara","Samhanana","Pramana","Satmya","Sattva","Ahara Shakti","Vyayama Shakti","Vaya", "finding": what the patient reported in Ayurvedic terms, "elicited": true or false} — include ALL TEN, marking elicited false with finding "Not elicited" where the patient was not asked or skipped,\n' +
+  '    "agni": string, "koshtha": string, "aharaVihara": one sentence on diet and daily routine as reported,\n' +
+  '    "considerations": 1-2 sentences relating the Dashavidha findings to the presenting complaint in Ayurvedic terms, naming a Samprapti pattern if one is evident,\n' +
+  '    "note": one sentence stating that this is a screening indication from a kiosk interview and is not a substitute for the physician' + "'" + 's own examination},\n';
+
+const AYURVEDA_SPEC = {
+  ALLOPATHIC: ' "ayurveda": null — the patient was not asked the Ayurvedic questions,\n',
+  AYURVEDIC: AYURVEDA_SPEC_FULL,
+  BOTH: AYURVEDA_SPEC_FULL,
+};
+
+const CODING_SPEC = {
+  ALLOPATHIC:
+    ' "coding": {"icd10": best-guess ICD-10 code and title for the working impression or null, "namaste": null, "confidence": "low"|"medium"|"high"} — a SUGGESTION for the physician to confirm, never final,\n',
+  AYURVEDIC:
+    ' "coding": {"icd10": best-guess ICD-10 code and title for the working impression or null, "namaste": best-guess NAMASTE (AYUSH) term and code if one plausibly applies or null, "confidence": "low"|"medium"|"high"} — these are SUGGESTIONS for the physician to confirm, never final,\n',
+  BOTH:
+    ' "coding": {"icd10": best-guess ICD-10 code and title for the working impression or null, "namaste": best-guess NAMASTE (AYUSH) term and code if one plausibly applies or null, "confidence": "low"|"medium"|"high"} — give both where both plausibly apply; these are SUGGESTIONS for the physician to confirm, never final,\n',
+};
+
+async function buildSummaryAI({ answers, documents, visitType, system, prior }) {
+  system = SYSTEMS.includes(system) ? system : "AYURVEDIC";
   const lines = [];
   for (const a of answers || []) {
     if (a.answer) lines.push(`- ${a.question} => ${Array.isArray(a.answer) ? a.answer.join(", ") : a.answer}  [source: ${a.source || "touch"}]`);
@@ -539,6 +584,7 @@ async function buildSummaryAI({ answers, documents, visitType, prior }) {
       "You are a clinical documentation assistant preparing an OPD history for a physician at an Ayurveda " +
       "hospital in India. The patient answered a self-service kiosk interview before the consultation. The " +
       "physician has about three minutes.\n\n" +
+      SYSTEM_BRIEF[system] +
       "Rules that matter more than completeness:\n" +
       "- Never invent a finding, value, drug or dose. If something was not asked, write 'Not recorded'.\n" +
       "- Preserve the patient's own phrasing in quotes where they went off-script.\n" +
@@ -557,13 +603,8 @@ async function buildSummaryAI({ answers, documents, visitType, prior }) {
       ' "assessment": 3-4 sentences on what this pattern suggests and what would change the picture, explicitly provisional,\n' +
       ' "differentials": array of up to 4 {"condition": string, "why": one short line of evidence from THIS history},\n' +
       ' "investigations": array of up to 5 short strings — examinations or tests worth considering,\n' +
-      ' "ayurveda": {\n' +
-      '    "prakriti": {"vata": number, "pitta": number, "kapha": number} summing to 100,\n' +
-      '    "dashavidha": array of {"parameter": one of "Prakriti","Vikriti","Sara","Samhanana","Pramana","Satmya","Sattva","Ahara Shakti","Vyayama Shakti","Vaya", "finding": what the patient reported in Ayurvedic terms, "elicited": true or false} — include ALL TEN, marking elicited false with finding "Not elicited" where the patient was not asked or skipped,\n' +
-      '    "agni": string, "koshtha": string, "aharaVihara": one sentence on diet and daily routine as reported,\n' +
-      '    "considerations": 1-2 sentences relating the Dashavidha findings to the presenting complaint in Ayurvedic terms, naming a Samprapti pattern if one is evident,\n' +
-      '    "note": one sentence stating that this is a screening indication from a kiosk interview and is not a substitute for the physician\'s own examination},\n' +
-      ' "coding": {"icd10": best-guess ICD-10 code and title for the working impression or null, "namaste": best-guess NAMASTE (AYUSH) term and code if one plausibly applies or null, "confidence": "low"|"medium"|"high"} — these are SUGGESTIONS for the physician to confirm, never final,\n' +
+      AYURVEDA_SPEC[system] +
+      CODING_SPEC[system] +
       ' "priorInvestigations": one paragraph summarising every investigation result found in the scanned documents, oldest first, with dates — or "None available" if no documents were read,\n' +
       ' "documents": array of {"label": string, "summary": string},\n' +
       ' "suggestedQuestions": array of up to 4 short follow-up questions,\n' +
@@ -572,7 +613,7 @@ async function buildSummaryAI({ answers, documents, visitType, prior }) {
   return parseJson(text);
 }
 
-function offlineSummary({ answers, documents }) {
+function offlineSummary({ answers, documents, system }) {
   const find = (qid) => (answers || []).find((a) => a.questionId === qid);
   const val = (qid) => {
     const a = find(qid);
@@ -602,7 +643,7 @@ function offlineSummary({ answers, documents }) {
     assessment: "No AI assessment generated. The structured history above is the patient's own account, unprocessed.",
     differentials: [],
     investigations: [],
-    ayurveda: {
+    ayurveda: system === "ALLOPATHIC" ? null : {
       prakriti: { vata: pct(d.vata), pitta: pct(d.pitta), kapha: pct(d.kapha) },
       dashavidha: [
         ["Prakriti", "dv_prakriti"], ["Vikriti", "dv_vikriti"], ["Sara", "dv_sara"],
@@ -1086,17 +1127,18 @@ async function api(req, res, pathname) {
   if (pathname === "/api/visits" && method === "POST") {
     const s = patientOf(req);
     if (!s) return bad(res, 401, "Verify your phone number first.");
-    const { visitType = "FIRST", consent = {} } = await readBody(req);
+    const { visitType = "FIRST", system = "AYURVEDIC", consent = {} } = await readBody(req);
+    const sys = SYSTEMS.includes(system) ? system : "AYURVEDIC";
     const emergency = visitType === "EMERGENCY";
     const n = () => 10 + Math.floor(Math.random() * 89);
     const visit = {
       id: id(), token: emergency ? "P-" + n() : "A-" + n(), patientId: s.pid,
-      status: "IN_PROGRESS", visitType, triage: emergency ? "URGENT" : "ROUTINE",
+      status: "IN_PROGRESS", visitType, system: sys, triage: emergency ? "URGENT" : "ROUTINE",
       redFlag: emergency, consent, answers: [], summary: null, startedAt: now(),
     };
     store.visits.push(visit);
     save();
-    logEvent("visit_started", { visitId: visit.id, visitType });
+    logEvent("visit_started", { visitId: visit.id, visitType, system: sys });
     return ok(res, { visit });
   }
 
@@ -1193,14 +1235,14 @@ async function api(req, res, pathname) {
     let summary, generated = "ai";
     if (aiOn() && visit.consent && visit.consent.record !== false) {
       try {
-        summary = await buildSummaryAI({ answers, documents: docs, visitType: visit.visitType, prior });
+        summary = await buildSummaryAI({ answers, documents: docs, visitType: visit.visitType, system: visit.system, prior });
       } catch (e) {
         logEvent("summary_failed", { visitId: visit.id, message: String(e.message).slice(0, 300) });
-        summary = offlineSummary({ answers, documents: docs });
+        summary = offlineSummary({ answers, documents: docs, system: visit.system });
         generated = "offline_fallback";
       }
     } else {
-      summary = offlineSummary({ answers, documents: docs });
+      summary = offlineSummary({ answers, documents: docs, system: visit.system });
       generated = "offline";
     }
     summary.generated = generated;
