@@ -24,6 +24,17 @@
           next follow-up interview starts from.</p>
         </div>
         <div class="panel" style="margin-bottom:14px">
+          <h3>Where the patient is sent</h3>
+          <p style="font-size:16px;line-height:1.6;margin:0">A hospital is a set of departments, so an intake that cannot name one
+          has only moved the queue rather than shortened it. Every completed interview is routed to exactly one clinic &mdash; a
+          keyword router runs on every intake and never fails, and the AI summary may overrule it where it has better reason. A
+          clinician registers as a specialist or as a general clinician, and a specialist's queue is their own department, so the
+          dentist opens the console and sees dental cases. Three things are never filtered away: anything flagged urgent, anything
+          not yet routed, and nothing at all for a general clinician. A specialist can still lift the filter to cover a colleague,
+          and that view is written to the audit trail. The routing is a suggestion &mdash; any clinician can reassign a patient to
+          another department, and who moved them and why stays on the record.</p>
+        </div>
+        <div class="panel" style="margin-bottom:14px">
           <h3>Real in this build</h3>
           <p style="font-size:16px;line-height:1.6;margin:0">Three ways to identify — mobile, ABHA number, or Aadhaar with a real
           Verhoeff checksum · <b>a personal login ID and password</b> layered on top of the code, so a patient can return to
@@ -35,7 +46,9 @@
           undated rather than guessed into position · AI clinical summary with
           assessment, differentials and suggested investigations · ICD-10 and NAMASTE coding suggestions · rule-based red-flag
           triage · real SMS delivery when a gateway is configured · clinician registration with HPR ID and approval gating ·
-          live queue · single-action history verification with amend · prescription write-back · granular DPDP consent · full audit trail.</p>
+          live queue · <b>automatic department routing</b> with per-department queues, an audited override and clinician
+          reassignment · single-action history verification with amend · prescription write-back · granular DPDP consent ·
+          full audit trail.</p>
         </div>
         <div class="panel" style="margin-bottom:14px">
           <h3>Mocked, and why</h3>

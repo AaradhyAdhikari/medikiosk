@@ -396,3 +396,40 @@ html.a11y-contrast .visitcard,html.a11y-contrast .tlrow,
 html.a11y-contrast .dashhead,html.a11y-contrast .idcard{border-width:3px;border-color:#000}
 html.a11y-contrast .datechip{border:2px solid #000}
 html.a11y-contrast .datechip.undated{border-style:dashed}
+
+/* ── department routing ───────────────────────────────────────────────
+   A queue split by clinic needs three things to be legible at a glance: which
+   department a patient belongs to, when you are looking outside your own, and
+   what the filter is currently hiding from you. */
+
+.badge.dept{background:#E6EDF6;color:#2A4A73;border:1px solid #C4D5EA}
+.badge.dept.cross{background:var(--haldi-soft);color:#7A5310;border-color:#E7CC93}
+
+.scopebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:11px 14px;margin:0 0 16px;border-radius:14px;
+  background:#E6EDF6;border:1px solid #C4D5EA;color:#2A4A73;font-size:14px;line-height:1.45}
+.scopebar span{flex:1;min-width:200px}
+.scopebar b{font-weight:800}
+.scopebar.gen{background:var(--jade-soft);border-color:#B8DCCD;color:#14604D}
+.scopebar.all{background:var(--haldi-soft);border-color:#E7CC93;color:#7A5310}
+
+.panel.routing{border-left:3px solid #2A4A73}
+.deptpick{margin-bottom:10px}
+.deptnow{display:flex;align-items:center;gap:11px;padding:12px 14px;
+  background:#E6EDF6;border:1px solid #C4D5EA;border-radius:13px;color:#2A4A73}
+.deptnow b{display:block;font-size:17px;font-weight:800;line-height:1.25}
+.deptnow small{display:block;font-size:12.5px;font-weight:600;opacity:.82;margin-top:2px}
+
+.deptwhy{font-size:14.5px;line-height:1.55;margin:0 0 10px}
+.deptalt{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:0 0 12px}
+.deptalt b{font-weight:700;background:var(--surface2);border-radius:999px;padding:3px 9px;color:var(--muted)}
+.deptlbl{display:block;font-size:12px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
+
+select.field{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+  linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 20px) 50%,calc(100% - 14px) 50%;
+  background-size:6px 6px,6px 6px;background-repeat:no-repeat;padding-right:44px;font-size:16px}
+
+html.a11y-contrast .badge.dept,html.a11y-contrast .scopebar,
+html.a11y-contrast .deptnow{border:2px solid #000;color:#000}

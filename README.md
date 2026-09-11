@@ -211,7 +211,8 @@ tunnel dies when you close the terminal.
 
 # What is real, and what is not
 
-**Real:** three identification routes including a genuine Aadhaar Verhoeff checksum · patient
+**Real:** automatic department routing — every completed intake is sent to one clinic, specialists get their own
+queue, and the assignment can be overruled by any clinician · three identification routes including a genuine Aadhaar Verhoeff checksum · patient
 accounts with a personal login ID and password, layered on top of OTP rather than replacing it ·
 a read-only patient dashboard of past visits, documents and summaries · adaptive
 interview with first-visit, follow-up, proxy and emergency branching · voice input, spoken prompts
@@ -221,7 +222,8 @@ Ahara-Vihara · document capture with AI extraction · chronological document ti
 date printed on each paper, with undated items flagged rather than guessed at ·
 AI summary with assessment and differentials ·
 ICD-10 and NAMASTE coding suggestions · rule-based red-flag triage that upgrades the token to
-priority · clinician registration with HPR ID and approval gating · live queue · per-line accept and
+priority · clinician registration with HPR ID, department and approval gating · live queue scoped to the clinician's
+department · per-line accept and
 amend · prescription write-back · granular DPDP consent · audit trail · real SMS when configured.
 
 **Not real:**
@@ -264,6 +266,73 @@ Your app is **already configured** to use Firebase Realtime Database for real-ti
 - ✅ Cloud backup of all data
 - ✅ Optional: Store uploaded images in Firebase Storage
 - ✅ Falls back to local `db.json` if Firebase is unavailable
+
+---
+
+# Departments — who sees which patient
+
+A hospital runs on departments, and an intake that cannot say which one a patient belongs to has only moved the
+queue, not shortened it. Every completed interview is routed to exactly one clinic before it reaches the queue.
+
+### How the department is decided
+
+Two things decide it, in this order:
+
+1. **A keyword router**, in `server.js`, which runs on **every** intake, in Hindi and English, and never fails. It
+   scores the patient's own complaint more heavily than the rest of the history — a diabetic with a toothache is a
+   dental case today.
+2. **The AI summary**, which may overrule the router when it has better reason, and must give a one-line reason
+   naming the finding that sent the patient there.
+
+If the model returns a department this hospital does not run, returns one from the wrong half of the hospital, or
+the summary call fails entirely, the router's answer stands. **There is no unrouted state** for a queue to lose a
+patient in. Routing works with no API key at all — the router is the whole of it, and the queue still sorts itself
+by clinic.
+
+The department list is in `server.js` as `DEPARTMENTS`, and it covers both halves of an AYUSH institute:
+
+| AYUSH | Biomedical |
+|---|---|
+| Kayachikitsa · Panchakarma · Shalya Tantra · Shalakya Tantra · Prasuti Tantra & Stri Roga · Kaumarbhritya · Swasthavritta & Yoga · Manas Roga | General Medicine · Dentistry · Orthopaedics · ENT · Ophthalmology · Dermatology · Cardiology · Pulmonology · Gastroenterology · Neurology · Psychiatry · Obstetrics & Gynaecology · Paediatrics · General Surgery |
+
+The patient's own choice of Ayurvedic, allopathic or both decides which column is used. Each department names its
+equivalent in the other column, so a cross-system referral is one selection rather than a search.
+
+**To add a department:** add an object to `DEPARTMENTS` with an `id`, labels, a `system`, and its keywords. Nothing
+else needs to change — the registration form, the AI prompt and the reassignment menu are all generated from that
+array.
+
+### What a clinician sees
+
+At registration a clinician picks one of three things:
+
+- **a department** — their queue is that department
+- **general clinician** — their queue is the whole hospital
+- **something not on the list**, typed in — their queue is the whole hospital, because a clinic we cannot route to
+  would otherwise mean a queue silently filtered to nothing
+
+Three things are never filtered away from a specialist, and this is the part worth defending in Q&A:
+
+- **anything flagged urgent or red-flagged** — visible to every clinician, always
+- **anything not yet routed** — badged for triage rather than vanishing
+- **nothing at all, for a general clinician**
+
+The filter is a default, not a wall. **Show all departments** lifts it, and using it writes a
+`queue_scope_override` entry to the audit trail naming the clinician. Opening a case outside your own department
+writes `cross_department_access`. A doctor covering a colleague's clinic can always do so; they simply cannot do it
+unobserved.
+
+### Reassignment
+
+The kiosk suggests a department; a clinician decides it. The case view shows the assignment, its confidence, the
+one-line reason, and what the keyword router would have chosen if the model disagreed with it. Any clinician can
+send the patient to another clinic with an optional reason, and the previous department, who changed it and when
+are all kept — a routing mistake stays visible instead of being overwritten.
+
+### Accounts created before this existed
+
+They have no department, so they are treated as general clinicians and keep seeing the whole queue, exactly as they
+did before. An upgrade must never quietly hide a patient from a doctor who could see them this morning.
 
 ---
 
@@ -314,6 +383,14 @@ fewer things that can break at nine in the evening before a demo.
 ---
 
 # Decisions worth defending in Q&A
+
+**Department routing is rules first, AI second.** The keyword router runs on every intake whether or not there is an
+API key, and it is what stands if the model returns a clinic this hospital does not have. The model can produce a
+better answer; it can never produce an unrouted patient.
+
+**A filtered queue says on screen that it is filtered.** A doctor who does not know a filter is on will read an
+empty queue as an empty hospital. The strip at the top names the department, counts what is not being shown, and
+offers the override in the same breath as the fact that using it is recorded.
 
 **Red flags are rules, not AI.** A word list runs on every answer, in the browser and again on the
 server. A missed emergency must never depend on an API call succeeding. The model can *add* flags;

@@ -462,6 +462,278 @@ function isRedFlag(text) {
   return RED_WORDS.some((w) => t.includes(w.toLowerCase()));
 }
 
+/* ── departments ──────────────────────────────────────────────────────
+   A hospital runs on departments, and a kiosk that cannot say which one a
+   patient belongs to has only moved the queue, not shortened it. Every visit
+   is routed to exactly one department. Two things decide it:
+
+     1. a keyword router, below, which runs on EVERY intake and never fails
+     2. the model, which may overrule the router when it has better reason
+
+   The router runs first and always. If the model returns a department that
+   is not in this registry, or returns nothing, the router's answer stands.
+   Routing a toothache to the wrong clinic is an inconvenience; a queue that
+   silently empties because a summary call timed out is an outage.
+
+   `system` is the affinity: an allopathic intake should not be sent to
+   Panchakarma, and an Ayurvedic one should land in an AYUSH OPD where an
+   equivalent exists. `equivalent` pairs the two halves of the hospital, so a
+   reassignment across systems is one click rather than a search. */
+
+const DEPARTMENTS = [
+  // ---- AYUSH departments
+  { id: "KAYACHIKITSA", en: "Kayachikitsa", hi: "कायचिकित्सा", sub: "General medicine · Ayurveda",
+    system: "ayush", equivalent: "GENERAL_MEDICINE", fallback: true,
+    keywords: ["fever", "weakness", "fatigue", "tiredness", "diabetes", "sugar", "blood pressure", "hypertension",
+      "thyroid", "anaemia", "anemia", "general", "body ache", "bodyache", "obesity", "weight",
+      "बुखार", "कमज़ोरी", "कमजोरी", "थकान", "मधुमेह", "शुगर", "रक्तचाप", "मोटापा", "बदन दर्द"] },
+
+  { id: "PANCHAKARMA", en: "Panchakarma", hi: "पंचकर्म", sub: "Shodhana therapies",
+    system: "ayush", equivalent: null,
+    keywords: ["panchakarma", "detox", "vamana", "virechana", "basti", "nasya", "raktamokshana",
+      "shodhana", "abhyanga", "swedana", "पंचकर्म", "वमन", "विरेचन", "बस्ति", "नस्य", "अभ्यंग"] },
+
+  { id: "SHALYA", en: "Shalya Tantra", hi: "शल्य तंत्र", sub: "Surgery · Ayurveda",
+    system: "ayush", equivalent: "GENERAL_SURGERY",
+    keywords: ["piles", "haemorrhoid", "hemorrhoid", "fistula", "fissure", "abscess", "boil", "lump",
+      "swelling hard", "ulcer", "wound", "varicose", "hernia", "arsha", "bhagandara",
+      "बवासीर", "अर्श", "भगंदर", "फिशर", "फोड़ा", "गांठ", "घाव", "हर्निया"] },
+
+  { id: "SHALAKYA", en: "Shalakya Tantra", hi: "शालाक्य तंत्र", sub: "Eye, ENT and dental · Ayurveda",
+    system: "ayush", equivalent: "ENT",
+    keywords: ["eye", "vision", "blurred", "cataract", "ear", "hearing", "tinnitus", "nose", "sinus",
+      "throat", "tonsil", "hoarse", "tooth", "teeth", "gum", "dental", "mouth ulcer", "netra", "karna",
+      "आँख", "आंख", "दृष्टि", "मोतियाबिंद", "कान", "नाक", "गला", "दांत", "दाँत", "मसूड़", "मुँह"] },
+
+  { id: "PRASUTI", en: "Prasuti Tantra & Stri Roga", hi: "प्रसूति तंत्र एवं स्त्री रोग", sub: "Obstetrics and gynaecology · Ayurveda",
+    system: "ayush", equivalent: "GYNAECOLOGY",
+    keywords: ["period", "menstrual", "menstruation", "menopause", "pregnan", "leucorrhoea", "white discharge",
+      "pcod", "pcos", "infertility", "uterus", "vaginal", "postnatal", "lactation",
+      "माहवारी", "मासिक", "गर्भ", "गर्भवती", "प्रदर", "श्वेत प्रदर", "बांझपन", "रजोनिवृत्ति"] },
+
+  { id: "KAUMARBHRITYA", en: "Kaumarbhritya", hi: "कौमारभृत्य", sub: "Paediatrics · Ayurveda",
+    system: "ayush", equivalent: "PAEDIATRICS",
+    keywords: ["child", "infant", "baby", "newborn", "toddler", "teething", "vaccination", "growth delay",
+      "बच्चा", "बच्चे", "शिशु", "नवजात", "बालक"] },
+
+  { id: "SWASTHAVRITTA", en: "Swasthavritta & Yoga", hi: "स्वस्थवृत्त एवं योग", sub: "Preventive health, diet and yoga",
+    system: "ayush", equivalent: null,
+    keywords: ["lifestyle", "diet advice", "yoga", "prevention", "preventive", "wellness", "checkup",
+      "check-up", "routine check", "rejuvenation", "rasayana", "immunity",
+      "जीवनशैली", "योग", "आहार", "दिनचर्या", "रसायन", "रोग प्रतिरोधक"] },
+
+  { id: "MANOVIGYAN", en: "Manovigyan Evam Manas Roga", hi: "मनोविज्ञान एवं मानस रोग", sub: "Mental health · Ayurveda",
+    system: "ayush", equivalent: "PSYCHIATRY",
+    keywords: ["anxiety", "depress", "stress", "panic", "insomnia", "sleepless", "mood", "memory loss",
+      "addiction", "unmada", "apasmara",
+      "चिंता", "अवसाद", "तनाव", "नींद नहीं", "अनिद्रा", "घबराहट", "मानसिक"] },
+
+  // ---- biomedical departments
+  { id: "GENERAL_MEDICINE", en: "General Medicine", hi: "सामान्य चिकित्सा", sub: "Internal medicine",
+    system: "biomed", equivalent: "KAYACHIKITSA", fallback: true,
+    keywords: ["fever", "weakness", "fatigue", "diabetes", "sugar", "blood pressure", "hypertension",
+      "thyroid", "anaemia", "anemia", "infection", "general",
+      "बुखार", "कमज़ोरी", "कमजोरी", "थकान", "मधुमेह", "शुगर", "रक्तचाप", "संक्रमण"] },
+
+  { id: "DENTISTRY", en: "Dentistry", hi: "दंत चिकित्सा", sub: "Dental and oral health",
+    system: "biomed", equivalent: "SHALAKYA",
+    keywords: ["tooth", "teeth", "toothache", "dental", "gum", "cavity", "molar", "wisdom tooth",
+      "denture", "jaw pain", "mouth ulcer", "bad breath", "bleeding gums",
+      "दांत", "दाँत", "दंत", "मसूड़", "दाढ़", "मुँह में छाला", "जबड़"] },
+
+  { id: "ORTHOPAEDICS", en: "Orthopaedics", hi: "अस्थि रोग", sub: "Bones, joints and spine",
+    system: "biomed", equivalent: "KAYACHIKITSA",
+    keywords: ["joint", "knee", "back pain", "backache", "spine", "shoulder", "fracture", "arthritis",
+      "sprain", "bone", "neck pain", "sciatica", "slip disc", "hip pain",
+      "जोड़", "घुटन", "कमर दर्द", "पीठ दर्द", "रीढ़", "कंधा", "हड्डी", "गठिया", "मोच"] },
+
+  { id: "ENT", en: "ENT", hi: "नाक कान गला", sub: "Ear, nose and throat",
+    system: "biomed", equivalent: "SHALAKYA",
+    keywords: ["ear", "hearing", "tinnitus", "nose", "nasal", "sinus", "throat", "tonsil", "hoarse",
+      "snoring", "vertigo", "ear discharge",
+      "कान", "नाक", "गला", "साइनस", "टॉन्सिल", "चक्कर", "सुनाई"] },
+
+  { id: "OPHTHALMOLOGY", en: "Ophthalmology", hi: "नेत्र रोग", sub: "Eye care",
+    system: "biomed", equivalent: "SHALAKYA",
+    keywords: ["eye", "vision", "blurred vision", "cataract", "glaucoma", "red eye", "watering eye",
+      "spectacles", "glasses", "double vision", "eye pain",
+      "आँख", "आंख", "दृष्टि", "मोतियाबिंद", "धुंधला", "चश्म"] },
+
+  { id: "DERMATOLOGY", en: "Dermatology", hi: "त्वचा रोग", sub: "Skin, hair and nails",
+    system: "biomed", equivalent: "KAYACHIKITSA",
+    keywords: ["skin", "rash", "itch", "itching", "eczema", "psoriasis", "acne", "pimple", "hair fall",
+      "hair loss", "dandruff", "fungal", "ringworm", "vitiligo", "white patch", "nail",
+      "त्वचा", "खुजली", "दाने", "चकत्ते", "मुँहासे", "बाल झड़", "दाद", "सफेद दाग"] },
+
+  { id: "CARDIOLOGY", en: "Cardiology", hi: "हृदय रोग", sub: "Heart and circulation",
+    system: "biomed", equivalent: "KAYACHIKITSA",
+    keywords: ["chest pain", "chest tight", "palpitation", "heart", "cardiac", "angina",
+      "swelling feet", "high bp", "cholesterol",
+      "सीने में दर्द", "छाती में दर्द", "धड़कन", "हृदय", "दिल"] },
+
+  { id: "PULMONOLOGY", en: "Pulmonology", hi: "श्वास रोग", sub: "Lungs and breathing",
+    system: "biomed", equivalent: "KAYACHIKITSA",
+    keywords: ["cough", "breathless", "shortness of breath", "asthma", "wheez", "chest infection",
+      "tuberculosis", "tb", "sputum", "copd", "smoking",
+      "खांसी", "खाँसी", "साँस", "सांस", "दमा", "अस्थमा", "बलगम", "टीबी"] },
+
+  { id: "GASTROENTEROLOGY", en: "Gastroenterology", hi: "उदर रोग", sub: "Stomach, liver and bowel",
+    system: "biomed", equivalent: "KAYACHIKITSA",
+    keywords: ["stomach", "abdomen", "abdominal", "acidity", "gas", "bloating", "indigestion",
+      "constipation", "diarrhoea", "diarrhea", "loose motion", "vomit", "nausea", "jaundice",
+      "liver", "ulcer stomach", "appetite",
+      "पेट", "अम्ल", "गैस", "कब्ज", "दस्त", "उल्टी", "जी मिचला", "पीलिया", "यकृत", "भूख"] },
+
+  { id: "NEUROLOGY", en: "Neurology", hi: "तंत्रिका रोग", sub: "Brain and nerves",
+    system: "biomed", equivalent: "KAYACHIKITSA",
+    keywords: ["headache", "migraine", "seizure", "fits", "convulsion", "numbness", "tingling",
+      "paralysis", "stroke", "tremor", "giddiness", "weakness one side", "nerve",
+      "सिरदर्द", "सिर दर्द", "माइग्रेन", "दौरा", "मिर्गी", "सुन्न", "झुनझुनी", "लकवा", "कंपन"] },
+
+  { id: "PSYCHIATRY", en: "Psychiatry", hi: "मनोरोग", sub: "Mental health",
+    system: "biomed", equivalent: "MANOVIGYAN",
+    keywords: ["anxiety", "depress", "stress", "panic", "insomnia", "sleepless", "mood", "suicidal",
+      "addiction", "alcohol", "hallucination",
+      "चिंता", "अवसाद", "तनाव", "अनिद्रा", "घबराहट", "मानसिक", "नशा"] },
+
+  { id: "GYNAECOLOGY", en: "Obstetrics & Gynaecology", hi: "स्त्री एवं प्रसूति रोग", sub: "Women's health",
+    system: "biomed", equivalent: "PRASUTI",
+    keywords: ["period", "menstrual", "menstruation", "menopause", "pregnan", "leucorrhoea",
+      "white discharge", "pcod", "pcos", "infertility", "uterus", "vaginal", "contracept",
+      "माहवारी", "मासिक", "गर्भ", "गर्भवती", "प्रदर", "बांझपन", "रजोनिवृत्ति"] },
+
+  { id: "PAEDIATRICS", en: "Paediatrics", hi: "बाल रोग", sub: "Children's health",
+    system: "biomed", equivalent: "KAUMARBHRITYA",
+    keywords: ["child", "infant", "baby", "newborn", "toddler", "teething", "vaccination",
+      "बच्चा", "बच्चे", "शिशु", "नवजात"] },
+
+  { id: "GENERAL_SURGERY", en: "General Surgery", hi: "सामान्य शल्य", sub: "Surgical opinion",
+    system: "biomed", equivalent: "SHALYA",
+    keywords: ["piles", "haemorrhoid", "hemorrhoid", "fistula", "fissure", "hernia", "abscess",
+      "lump", "gallstone", "appendix", "varicose", "swelling hard", "wound",
+      "बवासीर", "भगंदर", "फिशर", "हर्निया", "गांठ", "पथरी", "फोड़ा"] },
+];
+
+const DEPT_BY_ID = DEPARTMENTS.reduce((m, d) => (m[d.id] = d, m), {});
+const DEPT_IDS = DEPARTMENTS.map((d) => d.id);
+
+// "GENERAL" is not a department a patient is routed to. It is what a clinician
+// picks when they hold a general OPD and should see every case — the setting a
+// small hospital, a registrar or a triage desk actually needs.
+const GENERAL_SCOPE = "GENERAL";
+
+const deptLabel = (deptId) =>
+  deptId === GENERAL_SCOPE ? "All departments"
+    : (DEPT_BY_ID[deptId] && DEPT_BY_ID[deptId].en) || deptId || "Unassigned";
+
+const publicDepartments = () =>
+  DEPARTMENTS.map((d) => ({ id: d.id, en: d.en, hi: d.hi, sub: d.sub, system: d.system, equivalent: d.equivalent }));
+
+/* Accounts created before this feature existed carry no departmentId. They
+   are treated as general clinicians — they keep seeing the whole queue,
+   exactly as they did yesterday. An upgrade must never quietly hide a
+   patient from a doctor who could see them this morning. */
+const scopeOf = (clinician) => {
+  const d = clinician && clinician.departmentId;
+  return DEPT_BY_ID[d] ? d : GENERAL_SCOPE;
+};
+const isGeneralist = (clinician) => scopeOf(clinician) === GENERAL_SCOPE;
+
+const publicClinician = (c) => c && ({
+  id: c.id, name: c.name, hprId: c.hprId, room: c.room,
+  departmentId: scopeOf(c),
+  department: c.department || deptLabel(scopeOf(c)),
+  isGeneralist: isGeneralist(c),
+});
+
+/* Which half of the hospital should this patient's department come from?
+   BOTH is deliberately left open — an integrative consultation may sit in
+   either, and the physician reassigns if the kiosk picked the wrong side. */
+function deptPoolFor(system) {
+  if (system === "ALLOPATHIC") return DEPARTMENTS.filter((d) => d.system === "biomed");
+  if (system === "AYURVEDIC") return DEPARTMENTS.filter((d) => d.system === "ayush");
+  return DEPARTMENTS;
+}
+
+const fallbackDept = (system) => (system === "ALLOPATHIC" ? "GENERAL_MEDICINE" : "KAYACHIKITSA");
+
+/* The keyword router. Deliberately dumb, deliberately deterministic, and it
+   runs whether or not there is an API key. The complaint carries more weight
+   than the rest of the history, because the rest of the history is full of
+   words about organs the patient is not here about. */
+function routeDepartmentByRules({ answers, complaint, system }) {
+  const pool = deptPoolFor(system);
+  const complaintText = String(complaint || "").toLowerCase();
+  const bodyText = (answers || [])
+    .map((a) => [a.question, Array.isArray(a.answer) ? a.answer.join(" ") : a.answer, a.customAnswer]
+      .filter(Boolean).join(" "))
+    .join(" ")
+    .toLowerCase();
+
+  let best = null, bestScore = 0;
+  for (const d of pool) {
+    let score = 0;
+    for (const k of d.keywords) {
+      const kw = k.toLowerCase();
+      if (complaintText.includes(kw)) score += 3;
+      else if (bodyText.includes(kw)) score += 1;
+    }
+    if (score > bestScore) { bestScore = score; best = d; }
+  }
+
+  if (!best || bestScore < 2) {
+    return {
+      id: fallbackDept(system),
+      confidence: "low",
+      reasoning: "No specialty-specific wording was found in the intake, so this is held in general OPD for triage.",
+      source: "rules",
+      score: bestScore,
+    };
+  }
+  return {
+    id: best.id,
+    confidence: bestScore >= 6 ? "high" : "medium",
+    reasoning: "Matched on wording in the patient's own complaint and history.",
+    source: "rules",
+    score: bestScore,
+  };
+}
+
+/* Take whatever the model produced and make it safe to store. An id outside
+   the registry, a wrong-system pick, or a missing object all fall back to the
+   router rather than leaving the visit unrouted. */
+function reconcileDepartment(modelDept, ruleDept, system) {
+  const pool = deptPoolFor(system).map((d) => d.id);
+  const raw = modelDept && typeof modelDept === "object" ? modelDept : {};
+  const id = String(raw.id || "").toUpperCase().trim();
+
+  if (DEPT_BY_ID[id] && pool.includes(id)) {
+    return {
+      id,
+      label: deptLabel(id),
+      confidence: ["low", "medium", "high"].includes(raw.confidence) ? raw.confidence : "medium",
+      reasoning: String(raw.reasoning || "Suggested from the presenting complaint.").slice(0, 400),
+      alternates: (Array.isArray(raw.alternates) ? raw.alternates : [])
+        .map((x) => String(x || "").toUpperCase().trim())
+        .filter((x) => DEPT_BY_ID[x] && x !== id && pool.includes(x))
+        .slice(0, 2),
+      source: "ai",
+      ruleSuggestion: ruleDept.id,
+      agreed: id === ruleDept.id,
+    };
+  }
+  return {
+    id: ruleDept.id,
+    label: deptLabel(ruleDept.id),
+    confidence: ruleDept.confidence,
+    reasoning: ruleDept.reasoning,
+    alternates: [],
+    source: "rules",
+    ruleSuggestion: ruleDept.id,
+    agreed: true,
+  };
+}
+
 // ─────────────────────────────────────────────────────────── AI (optional)
 
 const aiOn = () => Boolean(AI_KEY);
@@ -561,6 +833,28 @@ const CODING_SPEC = {
     ' "coding": {"icd10": best-guess ICD-10 code and title for the working impression or null, "namaste": best-guess NAMASTE (AYUSH) term and code if one plausibly applies or null, "confidence": "low"|"medium"|"high"} — give both where both plausibly apply; these are SUGGESTIONS for the physician to confirm, never final,\n',
 };
 
+/* The department block of the summary. The model is given only the departments
+   this hospital actually runs on the patient's side of the system choice, by
+   id, so it cannot invent a clinic that does not exist. It is told to route on
+   the presenting complaint rather than on everything the patient mentioned —
+   a diabetic with a toothache is a dental case today. */
+function DEPARTMENT_SPEC(system) {
+  const pool = deptPoolFor(system)
+    .map((d) => `${d.id} (${d.en} — ${d.sub})`)
+    .join("; ");
+  return (
+    ' "department": {"id": EXACTLY one id from this list and nothing else — ' + pool + ', ' +
+    '"confidence": "low"|"medium"|"high", ' +
+    '"reasoning": one short sentence, in plain English, naming the finding in THIS history that sends the patient there, ' +
+    '"alternates": array of up to 2 other ids from the same list that a triage clerk might reasonably choose instead} ' +
+    "— route on the PRESENTING COMPLAINT, not on the patient's background conditions. A patient with long-standing " +
+    "diabetes who has come about a toothache belongs to the dental clinic today. Where the complaint is vague, " +
+    "multi-system, or you are not reasonably sure, choose the general medicine department and say low confidence — " +
+    "sending an unclear case to general OPD is correct, guessing a specialty is not. This is a routing SUGGESTION " +
+    "for the front desk and the physician, never a decision,\n"
+  );
+}
+
 async function buildSummaryAI({ answers, documents, visitType, system, prior }) {
   system = SYSTEMS.includes(system) ? system : "AYURVEDIC";
   const lines = [];
@@ -603,6 +897,7 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior }) 
       ' "assessment": 3-4 sentences on what this pattern suggests and what would change the picture, explicitly provisional,\n' +
       ' "differentials": array of up to 4 {"condition": string, "why": one short line of evidence from THIS history},\n' +
       ' "investigations": array of up to 5 short strings — examinations or tests worth considering,\n' +
+      DEPARTMENT_SPEC(system) +
       AYURVEDA_SPEC[system] +
       CODING_SPEC[system] +
       ' "priorInvestigations": one paragraph summarising every investigation result found in the scanned documents, oldest first, with dates — or "None available" if no documents were read,\n' +
@@ -626,8 +921,23 @@ function offlineSummary({ answers, documents, system }) {
   const tot = Math.max(1, d.vata + d.pitta + d.kapha);
   const pct = (n) => Math.round((n / tot) * 100);
 
+  // Routing does not depend on the AI being on. Without a key the keyword
+  // router is the whole of it, and the queue still sorts itself by clinic.
+  const complaint = val("complaint") || val("progress") || "";
+  const ruleDept = routeDepartmentByRules({ answers, complaint, system });
+
   return {
     chiefComplaint: val("complaint") || val("progress") || "Not recorded",
+    department: {
+      id: ruleDept.id,
+      label: deptLabel(ruleDept.id),
+      confidence: ruleDept.confidence,
+      reasoning: ruleDept.reasoning,
+      alternates: [],
+      source: "rules",
+      ruleSuggestion: ruleDept.id,
+      agreed: true,
+    },
     narrative:
       "Assembled directly from the patient's kiosk answers without AI interpretation. " +
       "Add ANTHROPIC_API_KEY to .env to enable the full clinical summary.",
@@ -685,9 +995,17 @@ function loadExamples() {
   store.visits.push({
     id: id(), token: "A-17", patientId: kamla.id, status: "WAITING", visitType: "FIRST", triage: "ROUTINE",
     redFlag: false, example: true, startedAt: now(), submittedAt: now(),
+    system: "AYURVEDIC",
+    department: "KAYACHIKITSA", departmentLabel: "Kayachikitsa",
+    departmentSource: "example", departmentConfidence: "high",
     consent: { record: true, docs: true, share: true, locker: true }, answers: [],
     summary: {
       chiefComplaint: "Pain and stiffness in both knees, worse on climbing stairs, for about 8 months.",
+      department: {
+        id: "KAYACHIKITSA", label: "Kayachikitsa", confidence: "high", source: "example",
+        reasoning: "Chronic bilateral joint pain with a Vata-vitiation pattern — an Ayurvedic internal medicine case, not a surgical one.",
+        alternates: ["PANCHAKARMA"], ruleSuggestion: "KAYACHIKITSA", agreed: true,
+      },
       narrative:
         "A 62-year-old woman with type 2 diabetes and hypertension presents with an eight-month history of bilateral knee pain. " +
         "The pain is dull and aching, worse in the mornings and on stairs, and eases with rest and local heat. There is no history " +
@@ -745,9 +1063,17 @@ function loadExamples() {
   store.visits.push({
     id: id(), token: "P-23", patientId: ramesh.id, status: "WAITING", visitType: "FIRST", triage: "URGENT",
     redFlag: true, example: true, startedAt: now(), submittedAt: now(),
+    system: "BOTH",
+    department: "CARDIOLOGY", departmentLabel: "Cardiology",
+    departmentSource: "example", departmentConfidence: "high",
     consent: { record: true, docs: true, share: true, locker: false }, answers: [],
     summary: {
       chiefComplaint: "Tightness in the chest since this morning, with breathlessness on walking.",
+      department: {
+        id: "CARDIOLOGY", label: "Cardiology", confidence: "high", source: "example",
+        reasoning: "Exertional chest tightness of same-day onset — routed to cardiology, and flagged so it stays visible on every clinician's queue.",
+        alternates: ["GENERAL_MEDICINE"], ruleSuggestion: "CARDIOLOGY", agreed: true,
+      },
       narrative:
         "A 54-year-old man with hypertension describes central chest tightness beginning roughly four hours ago, heavy and pressing " +
         "in character, associated with breathlessness on exertion and sweating. He reports no previous episode of this kind. His " +
@@ -869,6 +1195,13 @@ async function api(req, res, pathname) {
   // ---- config for the client
   if (pathname === "/api/config" && method === "GET") {
     return ok(res, { hospital: HOSPITAL, aiEnabled: aiOn() });
+  }
+
+  // ---- the department registry
+  // Public on purpose: the clinician registration form needs it before anyone
+  // has an account, and it is a list of clinic names, not patient data.
+  if (pathname === "/api/departments" && method === "GET") {
+    return ok(res, { departments: publicDepartments(), generalScope: GENERAL_SCOPE });
   }
 
   // ---- patient: request a code
@@ -1247,6 +1580,30 @@ async function api(req, res, pathname) {
     }
     summary.generated = generated;
 
+    /* ── department routing ────────────────────────────────────────────
+       The rule router runs on every intake regardless of what the model did
+       or whether it ran at all, and it is what stands if the model returned
+       a department this hospital does not have. A visit always leaves this
+       endpoint with a department; there is no unrouted state for the queue
+       to lose a patient in. */
+    const ruleDept = routeDepartmentByRules({
+      answers,
+      complaint: summary.chiefComplaint,
+      system: visit.system,
+    });
+    // Only a real model response counts as a model suggestion. Without a key
+    // the summary already carries the router's own answer, and re-reading it
+    // here would relabel rule output as AI output in the audit trail.
+    const dept = reconcileDepartment(
+      generated === "ai" ? summary.department : null, ruleDept, visit.system
+    );
+    summary.department = dept;
+    visit.department = dept.id;
+    visit.departmentLabel = dept.label;
+    visit.departmentSource = dept.source;
+    visit.departmentConfidence = dept.confidence;
+    visit.departmentAssignedAt = now();
+
     // The document list shown back to the patient is taken from the stored
     // records, not from whatever order the model echoed them in. Same labels
     // and same extracted sentences — but the timeline is not left to chance.
@@ -1271,7 +1628,11 @@ async function api(req, res, pathname) {
     save();
 
     logEvent(redFlag ? "red_flag" : "summary_generated", { visitId: visit.id, generated, documents: docs.length });
-    return ok(res, { visit, redFlag, generated });
+    logEvent("department_routed", {
+      visitId: visit.id, department: dept.id, source: dept.source,
+      confidence: dept.confidence, ruleSuggestion: ruleDept.id, agreed: dept.agreed,
+    });
+    return ok(res, { visit, redFlag, generated, department: dept });
   }
 
   // ---- patient: identify by ABHA number
@@ -1345,18 +1706,33 @@ async function api(req, res, pathname) {
   // automatically, because someone has to be able to get in; every later
   // account waits for an existing clinician to approve it.
   if (pathname === "/api/doctor/register" && method === "POST") {
-    const { name, email, password, hprId, department, room } = await readBody(req);
+    const { name, email, password, hprId, department, departmentId, room } = await readBody(req);
     const mail = String(email || "").toLowerCase().trim();
     if (!String(name || "").trim()) return bad(res, 400, "Enter your name.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return bad(res, 400, "Enter a valid email address.");
     if (String(password || "").length < 8) return bad(res, 400, "Use a password of at least 8 characters.");
     if (store.clinicians.some((c) => c.email === mail)) return bad(res, 409, "An account with that email already exists.");
 
+    /* A clinician is one of three things, and the queue behaves differently
+       for each: a specialist in a department this hospital runs (their queue
+       is that department), a general clinician (their queue is everything),
+       or a specialist in something not on our list, who types it (their
+       queue is everything, because we cannot route to a clinic we do not
+       know — and a queue silently filtered to nothing is the worst outcome). */
+    const wanted = String(departmentId || "").toUpperCase().trim();
+    const known = DEPT_BY_ID[wanted] ? wanted : wanted === GENERAL_SCOPE ? GENERAL_SCOPE : null;
+    const customDept = String(department || "").trim();
+    const deptId = known || GENERAL_SCOPE;
+
     const first = store.clinicians.length === 0;
     const clinician = {
       id: id(), email: mail, passwordHash: hashPassword(String(password)),
       name: String(name).trim(), hprId: String(hprId || "").trim() || null,
-      department: String(department || "").trim() || null,
+      departmentId: deptId,
+      // What it says on their door. A known department uses the registry name
+      // so two people in the same clinic never read as two clinics.
+      department: DEPT_BY_ID[deptId] ? DEPT_BY_ID[deptId].en : (customDept || "General clinician"),
+      customDepartment: known ? null : (customDept || null),
       room: String(room || "").trim() || null,
       approved: first, createdAt: now(),
     };
@@ -1373,7 +1749,7 @@ async function api(req, res, pathname) {
     setCookie(res, "mk_doctor", sign({ cid: clinician.id, exp: Date.now() + 12 * 3600 * 1000 }));
     return ok(res, {
       ok: true, approved: true,
-      clinician: { id: clinician.id, name: clinician.name, department: clinician.department, room: clinician.room, hprId: clinician.hprId },
+      clinician: publicClinician(clinician),
     });
   }
 
@@ -1414,14 +1790,14 @@ async function api(req, res, pathname) {
     }
     setCookie(res, "mk_doctor", sign({ cid: c.id, exp: Date.now() + 12 * 3600 * 1000 }));
     logEvent("clinician_login", { clinicianId: c.id });
-    return ok(res, { clinician: { id: c.id, name: c.name, department: c.department, room: c.room, hprId: c.hprId } });
+    return ok(res, { clinician: publicClinician(c) });
   }
 
   if (pathname === "/api/doctor/session" && method === "GET") {
     const s = doctorOf(req);
     if (!s) return ok(res, { clinician: null });
     const c = store.clinicians.find((x) => x.id === s.cid);
-    return ok(res, { clinician: c ? { id: c.id, name: c.name, department: c.department, room: c.room, hprId: c.hprId } : null });
+    return ok(res, { clinician: c ? publicClinician(c) : null });
   }
 
   if (pathname === "/api/doctor/logout" && method === "POST") {
@@ -1429,32 +1805,85 @@ async function api(req, res, pathname) {
     return ok(res, { ok: true });
   }
 
-  // ---- doctor: the live queue
+  /* ---- doctor: the live queue
+     A specialist's queue is their own department. That is the point of the
+     feature: the dentist opens the console and sees dental cases, not the
+     whole hospital, so the check-in is quicker and the record is cleaner.
+
+     Three things are deliberately NOT filtered away, because a filter that
+     can strand a patient is a clinical risk, not a privacy win:
+
+       · red-flagged and urgent cases — visible to every clinician, always
+       · visits with no department yet — they are unrouted, not someone
+         else's; they show up badged for triage rather than vanishing
+       · nothing at all, for a general clinician, who sees the whole queue
+
+     And the filter is a default, not a wall: `?all=1` lifts it for that one
+     request and writes who did it to the audit trail. A doctor who needs to
+     see a colleague's patient can; they simply cannot do it unobserved. */
   if (pathname === "/api/queue" && method === "GET") {
-    if (!doctorOf(req)) return bad(res, 401, "Sign in required.");
-    const list = store.visits
+    const sess = doctorOf(req);
+    if (!sess) return bad(res, 401, "Sign in required.");
+    const me = store.clinicians.find((x) => x.id === sess.cid) || {};
+    const scope = scopeOf(me);
+    const generalist = scope === GENERAL_SCOPE;
+    const wantsAll = new URL(req.url, "http://x").searchParams.get("all") === "1";
+    const unfiltered = generalist || wantsAll;
+
+    const rows = store.visits
       .filter((v) => v.status !== "IN_PROGRESS")
       .map((v) => {
         const p = store.patients.find((x) => x.id === v.patientId) || {};
+        const dept = v.department || (v.summary && v.summary.department && v.summary.department.id) || null;
         return {
           id: v.id, token: v.token, status: v.status, visitType: v.visitType, triage: v.triage,
           redFlag: v.redFlag, example: !!v.example, submittedAt: v.submittedAt,
           chiefComplaint: (v.summary && v.summary.chiefComplaint) || "History recorded",
           patient: { name: p.name || "Patient", ageYears: p.ageYears || null },
           documentCount: store.documents.filter((d) => d.visitId === v.id).length,
+          department: dept,
+          departmentLabel: dept ? deptLabel(dept) : null,
+          departmentSource: v.departmentSource || null,
+          departmentConfidence: v.departmentConfidence || null,
+          reassigned: !!v.departmentReassignedBy,
+          // Why this row is on a specialist's screen when it is not their
+          // department — the UI says so rather than leaving it unexplained.
+          crossDepartment: !unfiltered && dept !== scope,
         };
       })
       .sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
 
+    const mine = (v) =>
+      unfiltered ||
+      v.department === scope ||
+      !v.department ||                                   // unrouted: needs triage
+      v.redFlag || v.triage === "URGENT";                // never hide an emergency
+
+    const list = rows.filter(mine);
+    const hidden = rows.length - list.length;
+
+    if (wantsAll && !generalist) {
+      logEvent("queue_scope_override", { clinicianId: sess.cid, department: scope, revealed: hidden });
+    }
+
     const waiting = list.filter((v) => v.status !== "ASSESSED");
     return ok(res, {
       visits: list,
+      scope: {
+        departmentId: scope,
+        label: deptLabel(scope),
+        isGeneralist: generalist,
+        showingAll: unfiltered,
+        hidden,                     // in other departments, not shown
+        overrideActive: wantsAll && !generalist,
+      },
       stats: {
         waiting: waiting.length,
         redFlags: waiting.filter((v) => v.redFlag).length,
         assessed: list.filter((v) => v.status === "ASSESSED").length,
         total: list.length,
         minutesSaved: list.length * 4,
+        otherDepartments: hidden,
       },
     });
   }
@@ -1468,7 +1897,21 @@ async function api(req, res, pathname) {
     if (!visit) return bad(res, 404, "Not found.");
     if (!doc && visit.patientId !== pat.pid) return bad(res, 403, "Not yours.");
     const p = store.patients.find((x) => x.id === visit.patientId) || {};
-    if (doc) logEvent("record_opened", { visitId: visit.id, clinicianId: doc.cid });
+    if (doc) {
+      logEvent("record_opened", { visitId: visit.id, clinicianId: doc.cid });
+      // Opening a case outside your own department is allowed — a colleague
+      // covering a clinic, a second opinion, an emergency — but it is never
+      // silent. The name against the record is the whole safeguard.
+      const me = store.clinicians.find((x) => x.id === doc.cid) || {};
+      const scope = scopeOf(me);
+      if (scope !== GENERAL_SCOPE && visit.department && visit.department !== scope) {
+        logEvent("cross_department_access", {
+          visitId: visit.id, clinicianId: doc.cid,
+          clinicianDepartment: scope, visitDepartment: visit.department,
+          redFlag: !!visit.redFlag,
+        });
+      }
+    }
     const visitDocs = chronological(store.documents.filter((d) => d.visitId === visit.id));
     save(); // chronological() backfills dates onto older records; keep them
     return ok(res, {
@@ -1516,6 +1959,34 @@ async function api(req, res, pathname) {
       visit.verifiedBy = s.cid;
       visit.verifiedAt = now();
       logEvent("history_amended", { visitId: visit.id, fields: Object.keys(edits), by: s.cid });
+    }
+
+    /* Reassignment. The AI suggests, a clinician decides — the same rule the
+       rest of this history already runs on. The previous department, who
+       changed it and why are all kept, so a routing mistake is visible
+       afterwards instead of being overwritten. */
+    if (typeof body.department === "string") {
+      const to = body.department.toUpperCase().trim();
+      if (!DEPT_BY_ID[to]) return bad(res, 400, "That is not a department this hospital runs.");
+      if (to !== visit.department) {
+        const from = visit.department || null;
+        visit.departmentPrevious = from;
+        visit.department = to;
+        visit.departmentLabel = deptLabel(to);
+        visit.departmentSource = "clinician";
+        visit.departmentConfidence = "high";
+        visit.departmentReassignedBy = s.cid;
+        visit.departmentReassignedAt = now();
+        visit.departmentReassignReason = String(body.departmentReason || "").trim().slice(0, 300) || null;
+        if (visit.summary && visit.summary.department) {
+          visit.summary.department = Object.assign({}, visit.summary.department, {
+            id: to, label: deptLabel(to), source: "clinician", confidence: "high",
+          });
+        }
+        logEvent("department_reassigned", {
+          visitId: visit.id, from, to, by: s.cid, reason: visit.departmentReassignReason,
+        });
+      }
     }
 
     if (body.pushToEmr) { visit.pushedToEmr = true; logEvent("fhir_push", { visitId: visit.id, mocked: true }); }

@@ -2,7 +2,42 @@
 /* MediKiosk — the consultation console. */
 
 var stage = document.getElementById("stage");
-var D = { clinician: null, view: "queue", data: null, visit: null, scan: null, timer: null };
+var D = {
+  clinician: null, view: "queue", data: null, visit: null, scan: null, timer: null,
+  departments: [],   // the hospital's clinics, from the server
+  showAll: false,    // specialist has lifted their own department filter
+};
+
+/* ── departments ────────────────────────────────────────
+   One source of truth, served by the server, so a clinic cannot exist on the
+   registration form and not in the router. */
+function deptById(id) {
+  for (var i = 0; i < D.departments.length; i++) if (D.departments[i].id === id) return D.departments[i];
+  return null;
+}
+function deptName(id) {
+  if (!id) return "Unassigned";
+  if (id === "GENERAL") return "All departments";
+  var d = deptById(id);
+  return d ? d.en : id;
+}
+function deptOptions(selected, includeGeneral) {
+  var ayush = D.departments.filter(function (d) { return d.system === "ayush"; });
+  var bio = D.departments.filter(function (d) { return d.system === "biomed"; });
+  var opt = function (d) {
+    return '<option value="' + esc(d.id) + '"' + (d.id === selected ? " selected" : "") + ">" +
+      esc(d.en) + " · " + esc(d.hi) + "</option>";
+  };
+  var group = function (name, list) {
+    return list.length ? '<optgroup label="' + name + '">' + list.map(opt).join("") + "</optgroup>" : "";
+  };
+  return (includeGeneral
+      ? '<option value="GENERAL"' + (selected === "GENERAL" ? " selected" : "") +
+        ">General clinician — every department</option>"
+      : "") +
+    group("AYUSH departments", ayush) +
+    group("Biomedical departments", bio);
+}
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -66,10 +101,18 @@ function renderLogin(err, opts) {
         lbl("HOSPITAL EMAIL") + '<input class="field" id="em" type="email" placeholder="name@hospital.gov.in" autocomplete="username">' +
         lbl('HPR ID <span style="font-weight:500;text-transform:none">· Healthcare Professional Registry, optional</span>') +
         '<input class="field mono" id="hp" placeholder="71-4402-9318-5507">' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
-          "<div>" + lbl("DEPARTMENT") + '<input class="field" id="dp" placeholder="Kayachikitsa"></div>' +
-          "<div>" + lbl("ROOM") + '<input class="field" id="rm" placeholder="Room 4"></div>' +
+        lbl("DEPARTMENT <span style=\"font-weight:500;text-transform:none\">· this is the queue you will be given</span>") +
+        '<select class="field" id="dpid">' + deptOptions("", true) +
+          '<option value="OTHER">Other — I\'ll type it</option></select>' +
+        '<div id="dpother" style="display:none">' +
+          lbl("YOUR SPECIALTY") +
+          '<input class="field" id="dp" placeholder="e.g. Rheumatology">' +
+          '<p style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.5">' +
+          "A specialty that is not on the hospital's list cannot be routed to automatically, so you will be " +
+          "given the full queue until it is added. Nothing is hidden from you.</p>" +
         "</div>" +
+        '<p style="font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.5" id="dphint"></p>' +
+        lbl("ROOM") + '<input class="field" id="rm" placeholder="Room 4">' +
         lbl("PASSWORD <span style=\"font-weight:500;text-transform:none\">· at least 8 characters</span>") +
         '<input class="field" id="pw" type="password" autocomplete="new-password">'
       : lbl("HOSPITAL EMAIL") + '<input class="field" id="em" type="email" placeholder="name@hospital.gov.in" autocomplete="username">' +
@@ -91,6 +134,27 @@ function renderLogin(err, opts) {
   var swap = document.getElementById("swap");
   if (swap) swap.onclick = function () { renderLogin("", { mode: registering ? "login" : "register" }); };
 
+  var dpid = document.getElementById("dpid");
+  if (dpid) {
+    var syncDept = function () {
+      var v = dpid.value;
+      document.getElementById("dpother").style.display = v === "OTHER" ? "block" : "none";
+      var hint = document.getElementById("dphint");
+      if (v === "GENERAL") {
+        hint.textContent = "You will see every patient in the hospital, in every department.";
+      } else if (v === "OTHER" || !v) {
+        hint.textContent = "";
+      } else {
+        var d = deptById(v);
+        hint.textContent = d
+          ? "Your queue will show patients routed to " + d.en + " — plus anything flagged urgent, and anything not yet routed."
+          : "";
+      }
+    };
+    dpid.onchange = syncDept;
+    syncDept();
+  }
+
   document.getElementById("lf").onsubmit = async function (e) {
     e.preventDefault();
     var btn = document.getElementById("go");
@@ -98,9 +162,12 @@ function renderLogin(err, opts) {
     var val = function (id) { var n = document.getElementById(id); return n ? n.value : ""; };
     try {
       if (registering) {
+        var chosen = val("dpid");
         var r = await api("/api/doctor/register", {
-          name: val("nm"), email: val("em"), password: val("pw"),
-          hprId: val("hp"), department: val("dp"), room: val("rm"),
+          name: val("nm"), email: val("em"), password: val("pw"), hprId: val("hp"),
+          departmentId: chosen === "OTHER" ? "" : chosen,
+          department: chosen === "OTHER" ? val("dp") : "",
+          room: val("rm"),
         }, "POST");
         if (r.approved) { D.firstRun = false; D.clinician = r.clinician; return startQueue(); }
         D.firstRun = false;
@@ -124,7 +191,7 @@ function startQueue() {
 
 async function loadQueue() {
   try {
-    D.data = await api("/api/queue");
+    D.data = await api("/api/queue" + (D.showAll ? "?all=1" : ""));
     if (D.view === "queue") renderQueue();
   } catch (e) {
     if (String(e.message).indexOf("Sign in") > -1) { clearInterval(D.timer); D.clinician = null; renderLogin(); }
@@ -146,6 +213,13 @@ function rowHtml(v) {
     '<span><p class="nm">' + esc(v.patient.name + age) + "</p>" +
     '<p class="mt">' + esc(String(v.chiefComplaint).slice(0, 80)) + "</p></span>" +
     '<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + badgeFor(v) +
+    (v.department
+      ? '<span class="badge dept' + (v.crossDepartment ? " cross" : "") + '" title="' +
+        esc(v.crossDepartment
+          ? "Another department's patient — shown to you because it is flagged urgent"
+          : "Routed to " + deptName(v.department)) + '">' +
+        esc(deptName(v.department)) + (v.reassigned ? " ·\u00a0reassigned" : "") + "</span>"
+      : '<span class="badge haldi" title="No department yet — needs triage">Unrouted</span>') +
     '<span class="badge ' + (v.visitType === "FOLLOW_UP" ? "haldi" : "jade") + '">' +
       (v.visitType === "FOLLOW_UP" ? "Follow-up" : v.visitType === "PROXY" ? "Proxy" : "First visit") + "</span>" +
     (v.documentCount ? '<span class="badge grey">' + v.documentCount + " doc</span>" : "") +
@@ -160,10 +234,41 @@ function emptyQueueHtml() {
     '<p style="font-size:15px;color:var(--muted);line-height:1.55;margin:0 auto;max-width:48ch">' +
     'Open <b>/kiosk</b> in another tab, finish an interview, and the patient appears here within four seconds. ' +
     'This is a live queue — it fills from real use, not from sample data.</p>' +
+    ((D.data && D.data.scope && !D.data.scope.isGeneralist && D.data.scope.hidden)
+      ? '<p style="font-size:14px;color:var(--muted);margin:10px auto 0;max-width:48ch">' +
+        "There " + (D.data.scope.hidden === 1 ? "is 1 patient" : "are " + D.data.scope.hidden + " patients") +
+        " waiting in other departments. Use <b>Show all departments</b> above if you are covering for a colleague.</p>"
+      : "") +
     '<button class="btn ghost" id="loadex" style="margin:18px auto 0;max-width:340px;font-size:14px;padding:11px 16px">' +
     'Load two example patients</button>' +
     '<p style="font-size:12px;color:var(--muted);margin:8px 0 0">For screenshots only — they are labelled as examples, ' +
     'and deleting the data folder clears them.</p></div>';
+}
+
+/* The scope strip. A filtered queue must say so on the screen — a doctor who
+   does not know a filter is on will read an empty queue as an empty hospital.
+   It names the department, counts what is not being shown, and offers the
+   override in the same breath as the fact that using it is recorded. */
+function scopeBar(scope) {
+  if (!scope) return "";
+  if (scope.isGeneralist) {
+    return '<div class="scopebar gen">' + ICON("people", 15) +
+      "<span><b>General clinician</b> — you see every department.</span></div>";
+  }
+  if (scope.showingAll) {
+    return '<div class="scopebar all">' + ICON("zoom", 15) +
+      "<span><b>Showing every department.</b> You are outside " + esc(scope.label) +
+      ". This view is recorded in the audit trail.</span>" +
+      '<button class="badge grey" id="scopeoff" style="padding:7px 12px">Back to ' + esc(scope.label) + "</button></div>";
+  }
+  return '<div class="scopebar">' + ICON("lotus", 15) +
+    "<span><b>" + esc(scope.label) + "</b> queue" +
+    (scope.hidden
+      ? " · " + scope.hidden + " patient" + (scope.hidden === 1 ? "" : "s") + " in other departments " +
+        "<span style=\"color:var(--muted)\">(not shown)</span>"
+      : "") +
+    " · urgent and unrouted cases always appear here</span>" +
+    '<button class="badge grey" id="scopeon" style="padding:7px 12px">Show all departments</button></div>';
 }
 
 function renderQueue() {
@@ -179,6 +284,7 @@ function renderQueue() {
       (D.clinician.room ? " · " + esc(D.clinician.room) : "") + "</div></div>" +
     '<span class="spacer"></span><button class="badge grey" id="out" style="padding:7px 13px">Sign out</button></div>' +
     '<div class="dbody">' +
+      scopeBar(d.scope) +
       '<div class="stats">' +
         '<div class="stat"><b>' + (d.stats.waiting || 0) + "</b><span>WAITING NOW</span></div>" +
         '<div class="stat"><b style="color:var(--vermilion)">' + (d.stats.redFlags || 0) + "</b><span>RED FLAGS</span></div>" +
@@ -198,6 +304,11 @@ function renderQueue() {
     await api("/api/doctor/logout", {}, "POST");
     clearInterval(D.timer); D.clinician = null; renderLogin();
   };
+  var on = document.getElementById("scopeon");
+  if (on) on.onclick = function () { D.showAll = true; loadQueue(); };
+  var off = document.getElementById("scopeoff");
+  if (off) off.onclick = function () { D.showAll = false; loadQueue(); };
+
   var lx = document.getElementById("loadex");
   if (lx) lx.onclick = async function () {
     lx.disabled = true; lx.textContent = "Loading…";
@@ -254,6 +365,61 @@ function editLine(t, v, field) {
 var SYSTEM_LABEL = { AYURVEDIC: "Ayurvedic", ALLOPATHIC: "Allopathic", BOTH: "Ayurvedic + allopathic" };
 function sysOf(v) { return SYSTEM_LABEL[v && v.system] ? v.system : "AYURVEDIC"; }
 
+/* ── routing panel ──────────────────────────────────────
+   Where this patient has been sent, why, and the control to send them
+   somewhere else. It sits at the top of the right-hand column because the
+   first question a doctor asks about a patient who is not theirs is "why am
+   I looking at this?", and the second is "who should have them?". */
+function routingPanel(v) {
+  var s = v.summary || {};
+  var dep = s.department || {};
+  var id = v.department || dep.id || null;
+  var src = v.departmentSource || dep.source || null;
+  var conf = v.departmentConfidence || dep.confidence || "low";
+
+  var origin =
+    src === "clinician" ? "Set by a clinician" :
+    src === "ai" ? "Suggested by AI from the intake" :
+    src === "rules" ? "Matched by keyword from the intake" :
+    src === "example" ? "Example patient" : "Not yet routed";
+
+  var alts = (dep.alternates || []).filter(function (x) { return x !== id; });
+
+  return '<div class="panel routing"><h3>Department routing</h3>' +
+    '<div class="deptpick">' +
+      '<div class="deptnow">' + ICON("person", 18) +
+        "<div><b>" + esc(deptName(id)) + "</b>" +
+        '<small>' + esc(origin) + " · confidence " + esc(conf) + "</small></div>" +
+      "</div>" +
+    "</div>" +
+
+    (dep.reasoning ? '<p class="deptwhy">' + esc(dep.reasoning) + "</p>" : "") +
+
+    (dep.source === "ai" && dep.ruleSuggestion && dep.agreed === false
+      ? '<p class="deptwhy" style="color:var(--muted)">The keyword router would have sent this to ' +
+        esc(deptName(dep.ruleSuggestion)) + ". The model\'s reading was used instead — worth a glance.</p>"
+      : "") +
+
+    (v.departmentReassignedBy
+      ? '<p class="deptwhy" style="color:var(--muted)">Reassigned from ' + esc(deptName(v.departmentPrevious)) +
+        (v.departmentReassignReason ? " — " + esc(v.departmentReassignReason) : "") + "</p>"
+      : "") +
+
+    (alts.length
+      ? '<div class="deptalt"><span>Also considered:</span>' +
+        alts.map(function (x) { return "<b>" + esc(deptName(x)) + "</b>"; }).join("") + "</div>"
+      : "") +
+
+    '<label class="deptlbl" for="deptsel">Send to a different department</label>' +
+    '<select class="field" id="deptsel" style="margin-bottom:8px">' + deptOptions(id, false) + "</select>" +
+    '<input class="field" id="deptwhy" placeholder="Why (optional — kept on the record)" style="margin-bottom:9px">' +
+    '<button class="btn ghost" id="deptgo" style="font-size:15px;padding:11px">Reassign</button>' +
+    '<p style="font-size:12.5px;color:var(--muted);margin:9px 0 0;line-height:1.5">' +
+      "The kiosk suggests a department; you decide it. Reassigning moves this patient to that clinic\'s queue " +
+      "and records who moved them. Urgent cases stay visible to every clinician regardless.</p>" +
+    "</div>";
+}
+
 function renderCase() {
   var v = D.visit, s = v.summary || {}, a = s.ayurveda || {};
   var pk = a.prakriti || { vata: 33, pitta: 33, kapha: 34 };
@@ -266,7 +432,9 @@ function renderCase() {
     '<div class="sub mono">ABHA ' + esc(v.patient.abhaNumber || "—") + " · " +
       (v.visitType === "FOLLOW_UP" ? "Follow-up" : "First visit") +
       " · " + SYSTEM_LABEL[sysOf(v)] + "</div></div>" +
-    '<span class="spacer"></span>' + (v.redFlag ? '<span class="badge red">Red flag</span>' : "") + "</div>" +
+    '<span class="spacer"></span>' +
+    (v.department ? '<span class="badge dept" style="padding:8px 13px">' + esc(deptName(v.department)) + "</span>" : "") +
+    (v.redFlag ? '<span class="badge red">Red flag</span>' : "") + "</div>" +
 
     '<div class="dbody">' +
       '<div class="actionbar">' +
@@ -377,6 +545,10 @@ function renderCase() {
           "follow-up interview starts from this.</p></div>" +
       "</div><div>" +
 
+        routingPanel(v) +
+
+        '<div style="height:16px"></div>' +
+
         (sysOf(v) === "ALLOPATHIC"
           ? '<div class="panel"><h3>Ayurvedic examination</h3>' +
             '<p style="font-size:13px;color:var(--muted);margin:0;line-height:1.5">This patient chose ' +
@@ -442,6 +614,14 @@ function renderCase() {
     D.view = "queue"; renderQueue(); loadQueue();
   };
 
+  var deptgo = document.getElementById("deptgo");
+  if (deptgo) deptgo.onclick = function () {
+    var to = document.getElementById("deptsel").value;
+    if (!to || to === v.department) return;
+    deptgo.disabled = true; deptgo.textContent = "Reassigning…";
+    patchVisit({ department: to, departmentReason: document.getElementById("deptwhy").value });
+  };
+
   var acc = document.getElementById("accept");
   if (acc) acc.onclick = function () { patchVisit({ acceptHistory: true }); };
 
@@ -499,9 +679,11 @@ Promise.all([
   api("/api/doctor/session").catch(function () { return { clinician: null }; }),
   api("/api/doctor/first-run").catch(function () { return { firstRun: false }; }),
   api("/api/config").catch(function () { return {}; }),
+  api("/api/departments").catch(function () { return { departments: [] }; }),
 ]).then(function (r) {
   D.firstRun = !!r[1].firstRun;
   D.hospital = r[2].hospital || "OPD";
+  D.departments = r[3].departments || [];
   if (r[0].clinician) { D.clinician = r[0].clinician; startQueue(); }
   else renderLogin();
 });
