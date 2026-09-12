@@ -43,7 +43,51 @@ applyA11y();
 var body = document.getElementById("kbody");
 var foot = document.getElementById("kfoot");
 
-function L(hi, en) { return S.lang === "hi" ? hi : en; }
+/* Hindi and English are answered from the arguments. Every other language is
+   answered from its table in /lang, keyed by the English string. A key that
+   has not been translated falls through to English and is reported in the
+   console — never to Hindi, which a Tamil or Gujarati reader cannot read and
+   would have no way of knowing was a bug. `tools/i18n-check.js` catches these
+   before a patient does. */
+var MISSING = {};
+function L(hi, en) {
+  if (S.lang === "hi") return hi;
+  if (S.lang === "en") return en;
+  var t = window.TR[S.lang];
+  var v = t && t[en];
+  if (v) return v;
+  if (!MISSING[S.lang + "|" + en]) {
+    MISSING[S.lang + "|" + en] = 1;
+    console.warn("[i18n] no " + S.lang + " for: " + en);
+  }
+  return en;
+}
+/* Sentences with a value in the middle — a token, a phone number, a name.
+   Written as templates with {} placeholders so the whole sentence stays one
+   translatable key: a language that puts the number first, or adds a
+   postposition after it, can do so. Concatenating fragments would make that
+   impossible. */
+function LX(hi, en) {
+  var args = Array.prototype.slice.call(arguments, 2);
+  var i = 0;
+  return String(L(hi, en)).replace(/\{\}/g, function () { return args[i++]; });
+}
+
+// The Sanskrit technical terms, in the reader's script.
+function SK(deva) { return window.sanskrit(deva, S.lang); }
+
+function setLangPill() {
+  var el = document.getElementById("langpill");
+  if (el) el.textContent = window.langMeta(S.lang).native;
+}
+// Each script needs its own font loaded or it renders as boxes. The class on
+// <html> is what styles.css hangs the family off.
+function applyLangFont() {
+  var r = document.documentElement;
+  r.className = r.className.replace(/\bscript-\w+\b/g, "").trim();
+  r.classList.add("script-" + window.langMeta(S.lang).script);
+  r.setAttribute("lang", S.lang);
+}
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -64,7 +108,7 @@ function docDay(d) {
   if (!d || !d.docDate) return null;
   var t = new Date(d.docDate);
   if (isNaN(t)) return null;
-  return t.toLocaleDateString(S.lang === "hi" ? "hi-IN" : "en-IN",
+  return t.toLocaleDateString(window.langMeta(S.lang).date,
     { day: "numeric", month: "short", year: "numeric" });
 }
 
@@ -108,15 +152,42 @@ var VOICE_IN = !!SR;
 var VOICE_OUT = "speechSynthesis" in window;
 var rec = null, recOn = false;
 
+/* Spoken prompts depend on a voice being installed on the machine, and for
+   Indian languages that is far from guaranteed — a laptop may have Hindi and
+   nothing else. Rather than call speak() into silence and let the patient
+   think the kiosk has frozen, we check what the browser actually has and say
+   plainly on screen when prompts are unavailable in their language. Typing
+   and tapping are never affected; nothing is blocked either way. */
+function ttsVoiceFor(code) {
+  if (!VOICE_OUT) return null;
+  var want = window.langMeta(code).tts;
+  var base = want.split("-")[0];
+  var voices = [];
+  try { voices = window.speechSynthesis.getVoices() || []; } catch (e) { return null; }
+  if (!voices.length) return undefined;            // list not ready yet — unknown, not absent
+  for (var i = 0; i < voices.length; i++) if (voices[i].lang && voices[i].lang.replace("_", "-") === want) return voices[i];
+  for (var j = 0; j < voices.length; j++) if (voices[j].lang && voices[j].lang.split(/[-_]/)[0] === base) return voices[j];
+  return null;
+}
+function canSpeak(code) { return ttsVoiceFor(code || S.lang) !== null; }
+
 function speak(text) {
   if (!VOICE_OUT || !text) return;
+  var voice = ttsVoiceFor(S.lang);
+  if (voice === null) return;                      // no voice for this language on this machine
   try {
     window.speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text);
-    u.lang = S.lang === "hi" ? "hi-IN" : "en-IN";
+    u.lang = window.langMeta(S.lang).tts;
+    if (voice) u.voice = voice;
     u.rate = 0.92;
     window.speechSynthesis.speak(u);
   } catch (e) {}
+}
+// Chrome populates the voice list asynchronously; without this the first
+// question can be judged voiceless purely because the list had not arrived.
+if (VOICE_OUT && typeof window.speechSynthesis.addEventListener === "function") {
+  window.speechSynthesis.addEventListener("voiceschanged", function () {});
 }
 function listen(onPartial, onFinal) {
   if (!SR) { onFinal && onFinal(""); return; }
@@ -129,7 +200,7 @@ function listen(onPartial, onFinal) {
   
   try {
     rec = new SR();
-    rec.lang = S.lang === "hi" ? "hi-IN" : "en-IN";
+    rec.lang = window.langMeta(S.lang).asr;
     rec.interimResults = true;
     rec.continuous = false;
     var best = "";
@@ -187,8 +258,10 @@ document.getElementById("btn-speak").onclick = function () {
   speak(h ? h.textContent : "");
 };
 document.getElementById("btn-lang").onclick = function () {
-  S.lang = S.lang === "hi" ? "en" : "hi";
-  document.getElementById("langpill").textContent = S.lang === "hi" ? "हिन्दी" : "English";
+  // The pill toggles between the language chosen at the start and English —
+  // the two a patient is most likely to want to flip between mid-interview.
+  S.lang = S.lang === "en" ? (S.langChosen || "hi") : "en";
+  setLangPill();
   render();
 };
 document.getElementById("btn-help").onclick = function () {
@@ -205,21 +278,22 @@ function go(s) { S.screen = s; stopListen(); render(); }
 /* ── spoken navigation commands ──────────────────────
    The PS asks for voice throughout, not only for answers. These work on every
    question screen; the hint strip tells the patient what is available. */
-var COMMANDS = [
-  { act: "repeat", words: ["repeat", "again", "दोहराओ", "दोहराएँ", "फिर से", "दुबारा", "दोबारा"] },
-  { act: "back",   words: ["back", "previous", "पीछे", "वापस", "पिछला"] },
-  { act: "next",   words: ["next", "continue", "आगे", "अगला", "आगे बढ़ो"] },
-  { act: "skip",   words: ["skip", "छोड़", "छोड़ो", "छोड़ें"] },
-  { act: "help",   words: ["help", "मदद", "सहायता", "बुलाओ"] },
-];
+/* English words always match, because a patient may say "next" whatever the
+   screen language is. Beyond that only the CURRENT language's words are
+   matched, so a syllable that is a command in one language cannot hijack an
+   answer in another. */
+function commandWords(act) {
+  var g = window.COMMAND_WORDS[act] || {};
+  return (g.en || []).concat(S.lang === "en" ? [] : (g[S.lang] || []));
+}
 function matchCommand(text) {
   if (!text) return null;
   var t = String(text).toLowerCase().trim();
   if (t.split(/\s+/).length > 4) return null; // a sentence is an answer, not a command
-  for (var i = 0; i < COMMANDS.length; i++) {
-    for (var j = 0; j < COMMANDS[i].words.length; j++) {
-      if (t.indexOf(COMMANDS[i].words[j].toLowerCase()) > -1) return COMMANDS[i].act;
-    }
+  var acts = ["repeat", "back", "next", "skip", "help"];
+  for (var i = 0; i < acts.length; i++) {
+    var w = commandWords(acts[i]);
+    for (var j = 0; j < w.length; j++) if (t.indexOf(w[j].toLowerCase()) > -1) return acts[i];
   }
   return null;
 }
@@ -251,7 +325,7 @@ function journeyRail() {
       return '<span class="railitem ' + cls + '"><i></i>' +
         '<b' + (meta.dev ? ' class="dev"' : "") + ">" + esc(L(meta.hi, meta.en)) + "</b></span>";
     }).join("") +
-    '<span class="railtime">' + L("बाक़ी ≈ " + minutesLeft() + " मिनट", "≈ " + minutesLeft() + " min left") + "</span>" +
+    '<span class="railtime">' + LX("बाक़ी ≈ {} मिनट", "≈ {} min left", minutesLeft()) + "</span>" +
     "</div>";
 }
 
@@ -279,25 +353,20 @@ function render() {
 function scLang() {
   // Only languages the interview is genuinely translated into are selectable.
   // Showing a Tamil button that silently serves Hindi is worse than showing
-  // none — and a judge who speaks Tamil will find it in ten seconds.
-  var live = [
-    { code: "hi", glyph: "अ", native: "हिन्दी", english: "Hindi" },
-    { code: "en", glyph: "A", native: "English", english: "English" },
-  ];
-  var soon = [
-    { glyph: "ম", native: "বাংলা", english: "Bengali" },
-    { glyph: "અ", native: "ગુજરાતી", english: "Gujarati" },
-    { glyph: "ம", native: "தமிழ்", english: "Tamil" },
-    { glyph: "మ", native: "తెలుగు", english: "Telugu" },
-    { glyph: "म", native: "मराठी", english: "Marathi" },
-    { glyph: "ಕ", native: "ಕನ್ನಡ", english: "Kannada" },
-  ];
+  // none — and a judge who speaks Tamil will find it in ten seconds. A
+  // language appears here only when its translation file has actually loaded.
+  var live = window.liveLangs();
+  var soon = window.LANGS_SOON;
 
   body.innerHTML = '<span class="eyebrow">Ministry of Ayush · OPD Intake</span>' +
     '<h1 class="q">अपनी भाषा चुनिए</h1><p class="q-en">Choose your language</p>' +
     '<div class="chips two">' + live.map(function (o, i) {
-      return '<button class="chip" data-i="' + i + '"><span class="glyph">' + o.glyph + "</span><span>" +
-        o.native + "<small>" + o.english + "</small></span></button>";
+      // Each button is rendered in its own script, and marked if this machine
+      // has no voice for it — the patient finds out here, not three screens in.
+      return '<button class="chip script-' + o.script + '" lang="' + o.code + '" data-i="' + i + '">' +
+        '<span class="glyph">' + o.glyph + "</span><span>" + o.native +
+        "<small>" + o.english + (VOICE_OUT && !canSpeak(o.code) ? " · text only" : "") +
+        "</small></span></button>";
     }).join("") + "</div>" +
 
     '<p style="font-size:13.5px;font-weight:700;color:var(--muted);margin:20px 0 9px;' +
@@ -309,15 +378,18 @@ function scLang() {
     }).join("") + "</div>" +
 
     '<p class="lede" style="margin-top:16px">' +
-      L("अभी हिन्दी और अंग्रेज़ी पूरी तरह तैयार हैं। बाक़ी भाषाएँ भाषिणी ASR से जोड़ी जा रही हैं — " +
+      L("ऊपर दी गई हर भाषा में पूरा इंटरव्यू अनुवादित है। बाक़ी भाषाएँ भाषिणी ASR से जोड़ी जा रही हैं — " +
         "आधी-अधूरी भाषा देने से बेहतर है कि साफ़ बता दिया जाए।",
-        "Hindi and English are fully translated today. The remaining scheduled languages are being added " +
-        "through Bhashini ASR — we would rather say so than serve a half-translated interview.") + "</p>";
+        "Every language above has the full interview translated, not just the buttons. The remaining " +
+        "scheduled languages are being added through Bhashini — we would rather say so than serve a " +
+        "half-translated interview.") + "</p>";
 
   body.onclick = function (e) {
     var b = e.target.closest("[data-i]"); if (!b) return;
     S.lang = live[+b.dataset.i].code;
-    document.getElementById("langpill").textContent = S.lang === "hi" ? "हिन्दी" : "English";
+    S.langChosen = S.lang;
+    applyLangFont();
+    setLangPill();
     go("identify");
   };
 }
@@ -677,7 +749,7 @@ function scDash() {
   function fmt(iso) {
     if (!iso) return "—";
     var d = new Date(iso);
-    return isNaN(d) ? "—" : d.toLocaleDateString(S.lang === "hi" ? "hi-IN" : "en-IN",
+    return isNaN(d) ? "—" : d.toLocaleDateString(window.langMeta(S.lang).date,
       { day: "numeric", month: "short", year: "numeric" });
   }
   function statusBadge(v) {
@@ -840,10 +912,10 @@ function scOtp() {
   body.innerHTML = steps(2, 8) +
     '<span class="eyebrow">' + L("पहचान", "Identify") + "</span>" +
     '<h1 class="q">' + (S.knownName
-      ? L("नमस्ते " + S.knownName, "Welcome back, " + S.knownName)
+      ? LX("नमस्ते {}", "Welcome back, {}", S.knownName)
       : L("नंबर की पुष्टि कीजिए", "Confirm your number")) + "</h1>" +
-    '<p class="q-en">' + L("कोड " + (S.maskedPhone || S.phone) + " पर भेजा गया",
-      "Code sent to " + (S.maskedPhone || S.phone)) + "</p>" +
+    '<p class="q-en">' + LX("कोड {} पर भेजा गया",
+      "Code sent to {}", S.maskedPhone || S.phone) + "</p>" +
     '<div class="otp" id="ot"></div>' +
     (S.devCode ? '<div class="notice" style="margin-top:12px">' +
       L("कोई SMS गेटवे नहीं जुड़ा है, इसलिए कोड यहीं दिख रहा है: ", "No SMS gateway is configured, so your code is shown here: ") +
@@ -964,7 +1036,13 @@ function scVisit() {
 async function startVisit(system) {
   S.busy = true; S.error = ""; S.system = system;
   try {
-    var r = await api("/api/visits", { visitType: S.visitType, system: system, consent: S.consent });
+    var r = await api("/api/visits", {
+      visitType: S.visitType, system: system, consent: S.consent,
+      // The doctor's summary is written in English, but it has to say which
+      // language the patient answered in — a quoted phrase is only the
+      // patient's own words if the reader knows what language it is.
+      language: S.lang,
+    });
     S.visit = r.visit; S.step = 0; S.busy = false;
     go(S.visitType === "EMERGENCY" ? "red" : "q");
   } catch (err) { S.error = err.message; S.busy = false; render(); }
@@ -1018,12 +1096,15 @@ function scQuestion() {
   var v = S.answers[q.id];
   var html = journeyRail() +
     '<span class="eyebrow">' +
-      (q.ayur ? '<span class="dev">दशविध परीक्षा</span>' + (q.param ? " · " + esc(q.param) : "") : sectionLabel(q.section)) +
+      // The section name is Sanskrit, so it is transliterated into the reader's
+      // script rather than left in Devanagari for a Tamil or Telugu patient.
+      (q.ayur ? '<span class="dev">' + esc(SK("दशविध परीक्षा")) + "</span>" + (q.param ? " · " + esc(q.param) : "")
+              : sectionLabel(q.section)) +
       " · " + (S.step + 1) + "/" + qs.length + "</span>" +
     '<h1 class="q">' + esc(L(q.hi, q.en)) + "</h1>" +
-    (S.lang === "hi" ? '<p class="q-en">' + esc(q.en) + "</p>" : "") +
+    (S.lang === "en" ? "" : '<p class="q-en">' + esc(q.en) + "</p>") +
     (q.note ? '<p class="lede" style="font-size:15px;color:var(--jade);margin-top:-6px">' +
-      (q.paramHi ? '<b class="dev">' + esc(q.paramHi) + "</b> · " : "") + esc(L(q.note.hi, q.note.en)) + "</p>" : "");
+      (q.paramHi ? '<b class="dev">' + esc(SK(q.paramHi)) + "</b> · " : "") + esc(L(q.note.hi, q.note.en)) + "</p>" : "");
 
   if (q.kind === "measure") {
     html += '<div class="measure">' +
@@ -1099,7 +1180,9 @@ function scQuestion() {
     '<div class="row"><button class="btn ghost" id="bk">← ' + L("पीछे","Back") + "</button>" +
     '<button class="btn ghost" id="sk">' + L("छोड़ें","Skip") + "</button></div>" +
     (VOICE_IN ? '<p style="text-align:center;font-size:12px;color:var(--muted);margin:0">' +
-      L("बोलिए: दोहराएँ · पीछे · आगे · मदद", "Say: repeat · back · next · help") + "</p>" : "");
+      esc(window.COMMAND_HINT[S.lang] || window.COMMAND_HINT.en) +
+      (canSpeak() ? "" : " · " + L("इस भाषा में बोलकर सुनाना उपलब्ध नहीं है",
+        "Spoken prompts are not available in this language on this machine")) + "</p>" : "");
 
   var nx = document.getElementById("nx");
   function refresh() { nx.disabled = !hasAns(q); }
@@ -1371,32 +1454,112 @@ function scReview() {
   speak(L("कृपया जाँच लीजिए कि यह सही है।", "Please check that this is correct."));
 }
 
+/* The token slip.
+ *
+ * The QR carries an absolute URL to this visit, so the registration desk
+ * scans instead of typing a token into a search box — which is the whole
+ * point: check-in is where the queue actually stalls.
+ *
+ * The URL must be reachable from the DESK's device, not from the kiosk's own
+ * browser, so it is built from PUBLIC_URL when the deployment sets one and
+ * only falls back to this page's origin. A QR that says `localhost` scans
+ * perfectly and goes nowhere, which is the worst kind of broken.
+ */
+function checkinUrl() {
+  var base = (S.publicUrl || location.origin).replace(/\/+$/, "");
+  var key = (S.visit && (S.visit.checkinCode || S.visit.id)) || "";
+  return base + "/c/" + key;
+}
+
+function slipHtml(token) {
+  var dept = (S.visit && S.visit.departmentLabel) || "";
+  var code = (S.visit && S.visit.checkinCode) || "";
+  var priority = !!(S.visit && S.visit.redFlag);
+  var qr = "";
+  try {
+    qr = window.QR.svg(checkinUrl(), { size: 150, label: "Check-in code for token " + token });
+  } catch (e) {
+    qr = "";   // a slip without a QR is still a usable slip
+  }
+  return '<div class="slip" id="slip">' +
+      '<div class="sliphead">' +
+        '<span>' + esc(S.hospital || "OPD") + "</span>" +
+        '<span class="slipdate">' + esc(new Date().toLocaleDateString(window.langMeta(S.lang).date,
+          { day: "numeric", month: "short", year: "numeric" })) + "</span>" +
+      "</div>" +
+      '<div class="slipbody">' +
+        "<div>" +
+          '<div class="sliplabel">' + L("आपका टोकन","YOUR TOKEN") + "</div>" +
+          '<div class="token' + (priority ? " pri" : "") + '">' + esc(token) + "</div>" +
+          (dept ? '<div class="sliplabel" style="margin-top:10px">' + L("विभाग","Department") + "</div>" +
+                  '<div class="slipdept">' + esc(dept) + "</div>" : "") +
+          (priority ? '<div class="slippri">' + L("प्राथमिकता","Priority") + "</div>" : "") +
+        "</div>" +
+        (qr ? '<div class="slipqr">' + qr +
+          // The same code in characters. A QR smudged by a thermal head is a
+          // dead QR; eight characters someone can read out are not.
+          (code ? '<div class="slipcode mono">' + esc(code) + "</div>" : "") +
+          '<div class="slipscan">' + L("काउंटर पर यह दिखाइए","Show this at the desk") + "</div></div>" : "") +
+      "</div>" +
+    "</div>";
+}
+
+/* Printing puts a copy of the slip at the top of <body> and hides everything
+   else, so what comes out of the printer is the slip and nothing around it.
+   The clone is removed again afterwards — including when the dialog is
+   cancelled, which `afterprint` reports on every browser that matters. */
+function printSlip() {
+  var slip = document.getElementById("slip");
+  if (!slip) return;
+  var root = document.createElement("div");
+  root.className = "printroot";
+  root.appendChild(slip.cloneNode(true));
+  document.body.appendChild(root);
+
+  var cleanup = function () {
+    if (root.parentNode) root.parentNode.removeChild(root);
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  try { window.print(); } catch (e) { /* nothing to do — the slip is on screen */ }
+  setTimeout(cleanup, 6000);   // a browser that never fires afterprint
+}
+
 function scDone() {
   var token = (S.visit && S.visit.token) || "A-00";
   body.innerHTML = '<div style="margin:auto;text-align:center">' +
     '<div class="bigmark ok">' + ICON("check", 50) + '</div>' +
     '<h1 class="q" style="font-size:30px">' + L("हो गया","All done") + "</h1>" +
     '<p class="q-en">' + L("डॉक्टर के पास आपकी जानकारी पहुँच गई है", "Your history is already on the doctor's screen") + "</p>" +
-    '<div style="background:#fff;border:2px solid var(--line);border-radius:18px;padding:20px;margin:16px 0">' +
-      '<div style="font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--muted)">' + L("आपका टोकन","YOUR TOKEN") + "</div>" +
-      '<div class="token">' + esc(token) + "</div>" +
-      '<div style="font-size:16px;color:var(--muted);margin-top:6px">' + L("कमरा 4 · लगभग 12 मिनट","Room 4 · about 12 min") + "</div></div>" +
+    slipHtml(token) +
     (S.abha ? '<div class="notice" style="text-align:left">' + ICON("speaker",17) + " " +
-      L("आपकी ABHA आईडी " + S.abha + " — " + S.phone + " पर भेज दी गई है।",
-        "Your ABHA ID " + S.abha + " has been sent to " + S.phone + ".") + "</div>" : "") +
+      LX("आपकी ABHA आईडी {} — {} पर भेज दी गई है।",
+        "Your ABHA ID {} has been sent to {}.", S.abha, S.phone) + "</div>" : "") +
     (S.account && S.account.loginId
       ? '<div class="notice jade" style="text-align:left;margin-top:8px">' + ICON("document",17) + " " +
-        L("आपकी आईडी " + S.account.loginId + " — इससे और अपने पासवर्ड से आप कभी भी अपना पूरा रिकॉर्ड देख सकती हैं।",
-          "Your ID is " + S.account.loginId + ". With your password it opens your full record at any time.") + "</div>"
+        LX("आपकी आईडी {} — इससे और अपने पासवर्ड से आप कभी भी अपना पूरा रिकॉर्ड देख सकती हैं।",
+          "Your ID is {}. With your password it opens your full record at any time.", S.account.loginId) + "</div>"
       : "") +
     '<div class="notice jade" style="text-align:left;margin-top:8px">' + ICON("lock",17) + " " +
       L("इस स्क्रीन का आपका डेटा मिटा दिया गया है।", "Your session data has been erased from this screen.") + "</div></div>";
   foot.innerHTML = '<button class="btn" id="fin">' + L("समाप्त","Finish") + "</button>" +
+    '<button class="btn ghost" id="prn">' + ICON("document", 18) + " " + L("पर्ची छापें","Print slip") + "</button>" +
     (S.hasAccount ? '<button class="btn ghost" id="rec">' + L("मेरा रिकॉर्ड देखें", "See my records") + "</button>" : "");
   document.getElementById("fin").onclick = function () { location.href = "/"; };
+  document.getElementById("prn").onclick = printSlip;
   var rec = document.getElementById("rec");
   if (rec) rec.onclick = function () { openDashboard(); };
-  speak(L("हो गया। आपका टोकन " + token, "All done. Your token is " + token));
+  speak(LX("हो गया। आपका टोकन {}", "All done. Your token is {}", token));
 }
 
+applyLangFont();
+setLangPill();
 render();
+
+/* The hospital name and the externally reachable base URL, for the token slip.
+   Fetched without blocking the first screen — a patient should never wait on a
+   config call to choose their language — and the slip is many screens away. */
+api("/api/config").then(function (c) {
+  S.hospital = c.hospital || "";
+  S.publicUrl = c.publicUrl || "";
+}).catch(function () { /* the slip falls back to this page's origin */ });

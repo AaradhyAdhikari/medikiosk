@@ -169,18 +169,32 @@ function renderLogin(err, opts) {
           department: chosen === "OTHER" ? val("dp") : "",
           room: val("rm"),
         }, "POST");
-        if (r.approved) { D.firstRun = false; D.clinician = r.clinician; return startQueue(); }
+        if (r.approved) { D.firstRun = false; D.clinician = r.clinician; return afterSignIn(); }
         D.firstRun = false;
         return renderLogin("", { mode: "login", info: r.message });
       }
       var l = await api("/api/doctor/login", { email: val("em"), password: val("pw") }, "POST");
       D.clinician = l.clinician;
-      startQueue();
+      afterSignIn();
     } catch (err) { renderLogin(err.message, { mode: mode }); }
   };
 }
 
 /* ── queue ──────────────────────────────────────────── */
+
+/* One entry point after a successful sign-in, so a scanned slip behaves the
+   same whether the clinician was already signed in or had to log in first. */
+function afterSignIn() {
+  if (D.pendingVisit) {
+    var id = D.pendingVisit;
+    D.pendingVisit = null;
+    clearInterval(D.timer);
+    loadQueue();                      // keep the queue fresh behind the case
+    D.timer = setInterval(function () { if (D.view === "queue") loadQueue(); }, 4000);
+    return openVisit(id);
+  }
+  startQueue();
+}
 
 function startQueue() {
   D.view = "queue";
@@ -213,6 +227,10 @@ function rowHtml(v) {
     '<span><p class="nm">' + esc(v.patient.name + age) + "</p>" +
     '<p class="mt">' + esc(String(v.chiefComplaint).slice(0, 80)) + "</p></span>" +
     '<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + badgeFor(v) +
+    (v.languageName && v.language !== "hi" && v.language !== "en"
+      ? '<span class="badge lang" title="This patient answered the interview in ' +
+        esc(v.languageName) + '">' + esc(v.languageName) + "</span>"
+      : "") +
     (v.department
       ? '<span class="badge dept' + (v.crossDepartment ? " cross" : "") + '" title="' +
         esc(v.crossDepartment
@@ -363,6 +381,13 @@ function editLine(t, v, field) {
 /* Visits recorded before the kiosk asked this question carry no system, and
    those were all full Ayurvedic intakes — so that is what they read as. */
 var SYSTEM_LABEL = { AYURVEDIC: "Ayurvedic", ALLOPATHIC: "Allopathic", BOTH: "Ayurvedic + allopathic" };
+
+/* Which language the patient answered in. It belongs in the header next to
+   the system of medicine, because it changes how the physician reads a quoted
+   phrase — and because a summary that quotes Tamil without saying so looks
+   like a bug rather than like the patient's own words. */
+var LANG_NAMES_D = { hi: "Hindi", en: "English", mr: "Marathi", gu: "Gujarati",
+  pa: "Punjabi", ta: "Tamil", te: "Telugu" };
 function sysOf(v) { return SYSTEM_LABEL[v && v.system] ? v.system : "AYURVEDIC"; }
 
 /* ── routing panel ──────────────────────────────────────
@@ -431,7 +456,10 @@ function renderCase() {
       ' · <span class="mono">' + esc(v.token) + "</span></h2>" +
     '<div class="sub mono">ABHA ' + esc(v.patient.abhaNumber || "—") + " · " +
       (v.visitType === "FOLLOW_UP" ? "Follow-up" : "First visit") +
-      " · " + SYSTEM_LABEL[sysOf(v)] + "</div></div>" +
+      " · " + SYSTEM_LABEL[sysOf(v)] +
+      (v.language && v.language !== "en"
+        ? " · answered in " + esc(LANG_NAMES_D[v.language] || v.language) : "") +
+      "</div></div>" +
     '<span class="spacer"></span>' +
     (v.department ? '<span class="badge dept" style="padding:8px 13px">' + esc(deptName(v.department)) + "</span>" : "") +
     (v.redFlag ? '<span class="badge red">Red flag</span>' : "") + "</div>" +
@@ -684,6 +712,17 @@ Promise.all([
   D.firstRun = !!r[1].firstRun;
   D.hospital = r[2].hospital || "OPD";
   D.departments = r[3].departments || [];
-  if (r[0].clinician) { D.clinician = r[0].clinician; startQueue(); }
+
+  /* Arriving from a scanned token slip: /c/<visit> redirects here with the
+     visit in the query string. Open that patient directly rather than making
+     the clerk find them in the queue — that search is the thing the QR exists
+     to remove. If nobody is signed in yet, the id is held until they are. */
+  var wanted = new URLSearchParams(location.search).get("visit");
+  if (wanted) {
+    D.pendingVisit = wanted;
+    history.replaceState(null, "", location.pathname);   // don't leave it in the URL
+  }
+
+  if (r[0].clinician) { D.clinician = r[0].clinician; afterSignIn(); }
   else renderLogin();
 });

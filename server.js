@@ -50,6 +50,12 @@ const PORT = Number(process.env.PORT || 3000);
 const AI_KEY = process.env.ANTHROPIC_API_KEY || "";
 const AI_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const HOSPITAL = process.env.HOSPITAL_NAME || "All India Institute of Ayurveda";
+/* The address a phone at the check-in desk can actually reach. The token QR
+   has to carry an absolute URL, and `localhost:3000` — which is what the
+   kiosk's own browser sees — is useless to anyone else's device. Set this to
+   the tunnel or deployment URL before a demo; left unset, the kiosk falls
+   back to its own origin, which is right in production and wrong on a laptop. */
+const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 
 // ─────────────────────────────────────────────────────────── store
 
@@ -212,6 +218,23 @@ function verifyPassword(pw, stored) {
   } catch { return false; }
 }
 const sixDigits = () => String(100000 + (crypto.randomBytes(4).readUInt32BE(0) % 900000));
+
+/* A short code for the token QR and for the desk to type when a slip is torn.
+   Deliberately not the visit's UUID: a UUID is 36 characters, which pushes the
+   QR two versions higher, and a denser symbol has smaller modules — on a
+   thermal print scanned in corridor light, module size is the whole ball game.
+   The alphabet drops O/0 and I/1/L, because someone is going to read this over
+   a counter and someone else is going to type it. */
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+function checkinCode() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const bytes = crypto.randomBytes(8);
+    let out = "";
+    for (let i = 0; i < 8; i++) out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+    if (!store.visits.some((v) => v.checkinCode === out)) return out;
+  }
+  return null;   // astronomically unlikely; the id still works as a fallback
+}
 
 // ── patient login IDs
 //
@@ -451,10 +474,29 @@ const sendLoginIdSms = (phone, loginId, name) =>
 
 // ─────────────────────────────────────────────────────────── the interview
 
+/* Every language the kiosk offers, not only Hindi and English. A patient who
+   types "மார்பு வலி" must raise exactly the same flag as one who types "chest
+   pain" — the safety net cannot be narrower than the interview. The identical
+   list runs in the browser too (questions.js); both fire, because a missed
+   emergency must not depend on either one alone. */
 const RED_WORDS = [
+  // English
   "chest pain", "chest tight", "breathless", "cannot breathe", "can't breathe", "shortness of breath",
   "bleeding", "unconscious", "fainted", "stroke", "paralysis", "seizure", "fits", "convulsion",
+  // Hindi
   "सीने में दर्द", "छाती में दर्द", "साँस", "सांस", "खून", "बेहोश", "लकवा", "दौरा", "मिर्गी",
+  // Marathi
+  "छातीत दुखणे", "छातीत दुखत", "छातीत कळ", "श्वास", "दम लागतो", "रक्त", "बेशुद्ध", "पक्षाघात", "फेफरे", "झटका",
+  // Gujarati
+  "છાતીમાં દુખાવો", "છાતીમાં દુખ", "શ્વાસ", "દમ ચઢે", "લોહી", "બેભાન", "લકવો", "તાણ", "ખેંચ",
+  // Punjabi
+  "ਛਾਤੀ ਵਿੱਚ ਦਰਦ", "ਛਾਤੀ ਦਾ ਦਰਦ", "ਸਾਹ", "ਦਮ ਘੁਟ", "ਖ਼ੂਨ", "ਖੂਨ", "ਬੇਹੋਸ਼", "ਅਧਰੰਗ", "ਲਕਵਾ", "ਦੌਰਾ", "ਮਿਰਗੀ",
+  // Tamil
+  "மார்பு வலி", "மார்பில் வலி", "மூச்சு", "மூச்சுத் திணறல்", "இரத்தம்", "ரத்தம்", "மயக்கம்",
+  "பக்கவாதம்", "வலிப்பு",
+  // Telugu
+  "ఛాతీ నొప్పి", "ఛాతీలో నొప్పి", "ఊపిరి", "ఊపిరాడటం లేదు", "రక్తం", "స్పృహ తప్ప", "పక్షవాతం",
+  "మూర్ఛ", "ఫిట్స్",
 ];
 function isRedFlag(text) {
   if (!text) return false;
@@ -613,6 +655,81 @@ const DEPARTMENTS = [
       "lump", "gallstone", "appendix", "varicose", "swelling hard", "wound",
       "बवासीर", "भगंदर", "फिशर", "हर्निया", "गांठ", "पथरी", "फोड़ा"] },
 ];
+
+/* ── routing in every language ────────────────────────────────────────
+   The keyword lists above are English and Hindi. A Tamil patient who taps
+   "மார்பு வலி" would match none of them, and would land in general OPD every
+   time — which is safe but useless.
+
+   Rather than hand-maintain twenty-two keyword lists in seven languages, the
+   routing hints are DERIVED from the kiosk's own translation files. The
+   phrases below are the ones a patient actually taps — the complaint chips,
+   the body-map zones, the listed conditions — and every translation of them
+   that exists in /public/lang becomes a keyword for the department named.
+
+   The consequence worth having: adding a language adds its routing for free,
+   and a translation corrected by a native speaker corrects the router too.
+   They cannot drift apart, because there is only one copy. */
+const COMPLAINT_ROUTING = {
+  // what the patient taps on the first screen
+  "Joint or knee pain":       { biomed: "ORTHOPAEDICS",     ayush: "KAYACHIKITSA" },
+  "Headache":                 { biomed: "NEUROLOGY",        ayush: "KAYACHIKITSA" },
+  "Stomach problem":          { biomed: "GASTROENTEROLOGY", ayush: "KAYACHIKITSA" },
+  "Breathing difficulty":     { biomed: "PULMONOLOGY",      ayush: "KAYACHIKITSA" },
+  "Fever":                    { biomed: "GENERAL_MEDICINE", ayush: "KAYACHIKITSA" },
+  "Skin problem":             { biomed: "DERMATOLOGY",      ayush: "KAYACHIKITSA" },
+  "Sleep trouble or fatigue": { biomed: "GENERAL_MEDICINE", ayush: "KAYACHIKITSA" },
+  // where they touched on the body map
+  "Head":       { biomed: "NEUROLOGY",        ayush: "KAYACHIKITSA" },
+  "Chest":      { biomed: "CARDIOLOGY",       ayush: "KAYACHIKITSA" },
+  "Abdomen":    { biomed: "GASTROENTEROLOGY", ayush: "KAYACHIKITSA" },
+  "Lower back": { biomed: "ORTHOPAEDICS",     ayush: "KAYACHIKITSA" },
+  "Shoulder":   { biomed: "ORTHOPAEDICS",     ayush: "KAYACHIKITSA" },
+  "Knee":       { biomed: "ORTHOPAEDICS",     ayush: "KAYACHIKITSA" },
+  "Foot":       { biomed: "ORTHOPAEDICS",     ayush: "KAYACHIKITSA" },
+  // conditions they tick
+  "Asthma":            { biomed: "PULMONOLOGY",      ayush: "KAYACHIKITSA" },
+  "Arthritis":         { biomed: "ORTHOPAEDICS",     ayush: "KAYACHIKITSA" },
+  "Heart disease":     { biomed: "CARDIOLOGY",       ayush: "KAYACHIKITSA" },
+  "Diabetes":          { biomed: "GENERAL_MEDICINE", ayush: "KAYACHIKITSA" },
+  "High blood pressure": { biomed: "GENERAL_MEDICINE", ayush: "KAYACHIKITSA" },
+  "Thyroid":           { biomed: "GENERAL_MEDICINE", ayush: "KAYACHIKITSA" },
+};
+
+/* Reads /public/lang/*.js the same way the browser does, and folds every
+   translated complaint phrase into the department it routes to. Runs once at
+   startup; a language with no file simply contributes nothing. */
+function loadRoutingTranslations() {
+  const dir = path.join(PUBLIC, "lang");
+  let added = 0, langs = 0;
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith(".js")); } catch { return { added, langs }; }
+
+  for (const file of files) {
+    const code = file.replace(/\.js$/, "");
+    let table = null;
+    try {
+      const win = { TR: {} };
+      new Function("window", fs.readFileSync(path.join(dir, file), "utf8"))(win);
+      table = win.TR[code];
+    } catch (e) {
+      console.warn("  ! could not read translations for routing:", file, e.message);
+      continue;
+    }
+    if (!table || !Object.keys(table).length) continue;
+    langs++;
+
+    for (const [english, target] of Object.entries(COMPLAINT_ROUTING)) {
+      const phrase = table[english];
+      if (!phrase || typeof phrase !== "string") continue;
+      for (const side of ["biomed", "ayush"]) {
+        const dept = DEPARTMENTS.find((d) => d.id === target[side]);
+        if (dept && !dept.keywords.includes(phrase)) { dept.keywords.push(phrase); added++; }
+      }
+    }
+  }
+  return { added, langs };
+}
 
 const DEPT_BY_ID = DEPARTMENTS.reduce((m, d) => (m[d.id] = d, m), {});
 const DEPT_IDS = DEPARTMENTS.map((d) => d.id);
@@ -794,6 +911,16 @@ async function readDocumentAI(dataUrl) {
    allopathic intake never reaches the sixteen Ayurvedic questions, so the
    model must not be asked for Dashavidha findings it has no data for — an
    invented dosha reading in a physician's summary is worse than a blank. */
+/* The languages a patient may have answered in. The summary the physician
+   reads is always English — they have three minutes and a queue — but the
+   patient's own words are quoted inside it, and a quotation in an unnamed
+   script is not evidence of anything. Naming the language also tells the
+   model not to "correct" a phrase it half-recognises. */
+const LANG_NAMES = {
+  hi: "Hindi", en: "English", mr: "Marathi", gu: "Gujarati",
+  pa: "Punjabi", ta: "Tamil", te: "Telugu",
+};
+
 const SYSTEMS = ["AYURVEDIC", "ALLOPATHIC", "BOTH"];
 
 const SYSTEM_BRIEF = {
@@ -855,8 +982,9 @@ function DEPARTMENT_SPEC(system) {
   );
 }
 
-async function buildSummaryAI({ answers, documents, visitType, system, prior }) {
+async function buildSummaryAI({ answers, documents, visitType, system, prior, language }) {
   system = SYSTEMS.includes(system) ? system : "AYURVEDIC";
+  const langName = LANG_NAMES[language] || "Hindi";
   const lines = [];
   for (const a of answers || []) {
     if (a.answer) lines.push(`- ${a.question} => ${Array.isArray(a.answer) ? a.answer.join(", ") : a.answer}  [source: ${a.source || "touch"}]`);
@@ -882,6 +1010,13 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior }) 
       "Rules that matter more than completeness:\n" +
       "- Never invent a finding, value, drug or dose. If something was not asked, write 'Not recorded'.\n" +
       "- Preserve the patient's own phrasing in quotes where they went off-script.\n" +
+      (language === "en" ? "" :
+        `- The patient answered in ${langName}, and the answers below are in ${langName}. Write the ` +
+        "summary itself in ENGLISH, because that is what the physician reads. Where you quote the " +
+        `patient's own words, give the ${langName} exactly as they wrote or said it, followed by an ` +
+        "English rendering in brackets — a quotation the physician cannot read is not evidence, and a " +
+        "quotation you have silently translated is no longer theirs. Do not correct their spelling or " +
+        "their grammar.\n") +
       "- You may offer an assessment, but frame it strictly as considerations for the physician to confirm or " +
       "reject. No examination has been performed. You are never making a diagnosis.\n" +
       `- This is a ${visitType || "FIRST"} visit.` + priorTxt +
@@ -1194,7 +1329,7 @@ async function api(req, res, pathname) {
 
   // ---- config for the client
   if (pathname === "/api/config" && method === "GET") {
-    return ok(res, { hospital: HOSPITAL, aiEnabled: aiOn() });
+    return ok(res, { hospital: HOSPITAL, aiEnabled: aiOn(), publicUrl: PUBLIC_URL || null });
   }
 
   // ---- the department registry
@@ -1235,7 +1370,7 @@ async function api(req, res, pathname) {
 
   // ---- patient: verify
   if (pathname === "/api/otp/verify" && method === "POST") {
-    const { phone, code, name, ageYears, sex, heightCm, weightKg } = await readBody(req);
+    const { phone, code, name, ageYears, sex, heightCm, weightKg, language } = await readBody(req);
     const digits = String(phone || "").replace(/\D/g, "");
     const challenge = [...store.otps].reverse().find((o) => o.phone === digits && !o.used);
     if (!challenge) return bad(res, 400, "That code has expired. Ask for a new one.");
@@ -1258,7 +1393,7 @@ async function api(req, res, pathname) {
         sex: sex || null,
         heightCm: heightCm ? Number(heightCm) : null,
         weightKg: weightKg ? Number(weightKg) : null,
-        language: "hi",
+        language: LANG_NAMES[String(language || "")] ? String(language) : "hi",
         abhaNumber: `91-${q()}-${q()}-${q()}`,
         // Only the last four Aadhaar digits are ever stored, and only when the
         // patient came in through the Aadhaar door.
@@ -1460,18 +1595,24 @@ async function api(req, res, pathname) {
   if (pathname === "/api/visits" && method === "POST") {
     const s = patientOf(req);
     if (!s) return bad(res, 401, "Verify your phone number first.");
-    const { visitType = "FIRST", system = "AYURVEDIC", consent = {} } = await readBody(req);
+    const { visitType = "FIRST", system = "AYURVEDIC", consent = {}, language } = await readBody(req);
     const sys = SYSTEMS.includes(system) ? system : "AYURVEDIC";
+    const patientRec = store.patients.find((p) => p.id === s.pid);
+    const lang = LANG_NAMES[String(language || "")] ? String(language)
+      : (patientRec && LANG_NAMES[patientRec.language] ? patientRec.language : "hi");
     const emergency = visitType === "EMERGENCY";
     const n = () => 10 + Math.floor(Math.random() * 89);
     const visit = {
       id: id(), token: emergency ? "P-" + n() : "A-" + n(), patientId: s.pid,
-      status: "IN_PROGRESS", visitType, system: sys, triage: emergency ? "URGENT" : "ROUTINE",
+      checkinCode: checkinCode(),
+      status: "IN_PROGRESS", visitType, system: sys, language: lang,
+      triage: emergency ? "URGENT" : "ROUTINE",
       redFlag: emergency, consent, answers: [], summary: null, startedAt: now(),
     };
     store.visits.push(visit);
     save();
-    logEvent("visit_started", { visitId: visit.id, visitType, system: sys });
+    if (patientRec && patientRec.language !== lang) { patientRec.language = lang; }
+    logEvent("visit_started", { visitId: visit.id, visitType, system: sys, language: lang });
     return ok(res, { visit });
   }
 
@@ -1568,7 +1709,10 @@ async function api(req, res, pathname) {
     let summary, generated = "ai";
     if (aiOn() && visit.consent && visit.consent.record !== false) {
       try {
-        summary = await buildSummaryAI({ answers, documents: docs, visitType: visit.visitType, system: visit.system, prior });
+        summary = await buildSummaryAI({
+          answers, documents: docs, visitType: visit.visitType,
+          system: visit.system, language: visit.language, prior,
+        });
       } catch (e) {
         logEvent("summary_failed", { visitId: visit.id, message: String(e.message).slice(0, 300) });
         summary = offlineSummary({ answers, documents: docs, system: visit.system });
@@ -1843,6 +1987,8 @@ async function api(req, res, pathname) {
           documentCount: store.documents.filter((d) => d.visitId === v.id).length,
           department: dept,
           departmentLabel: dept ? deptLabel(dept) : null,
+          language: v.language || null,
+          languageName: LANG_NAMES[v.language] || null,
           departmentSource: v.departmentSource || null,
           departmentConfidence: v.departmentConfidence || null,
           reassigned: !!v.departmentReassignedBy,
@@ -2003,6 +2149,10 @@ async function api(req, res, pathname) {
 (async function boot() {
   await loadStore();
 
+  // Routing keywords for every language the kiosk is translated into, read
+  // from the same files the browser reads. See COMPLAINT_ROUTING above.
+  const routed = loadRoutingTranslations();
+
   // Open the browser for them. Nobody should have to remember a URL to use
   // their own app, and a terminal window they never type into is not a terminal
   // window they should have to think about. NO_OPEN=1 turns this off.
@@ -2020,6 +2170,23 @@ async function api(req, res, pathname) {
 
   const server = http.createServer((req, res) => {
     const pathname = decodeURIComponent(new URL(req.url, "http://x").pathname);
+
+    /* The token QR points here. Deliberately short — every character is another
+       module in the symbol, and a denser code is a slower scan on the cheap
+       reader a registration desk actually has. It carries no patient data, just
+       the visit id, so a slip dropped in a corridor discloses nothing to anyone
+       without a clinician login. */
+    const checkin = pathname.match(/^\/c\/([\w-]+)$/);
+    if (checkin) {
+      // Accept the short code or the raw visit id, so a slip printed before
+      // this existed still scans.
+      const key = checkin[1];
+      const found = store.visits.find((v) => v.checkinCode === key.toUpperCase()) ||
+                    store.visits.find((v) => v.id === key);
+      res.writeHead(302, { location: "/doctor?visit=" + encodeURIComponent(found ? found.id : key) });
+      return res.end();
+    }
+
     if (pathname.startsWith("/api/")) {
       api(req, res, pathname).catch((e) => {
         console.error("  ✗", e.message);
@@ -2044,6 +2211,7 @@ async function api(req, res, pathname) {
     }
     console.log(`\n   AI:        ${aiOn() ? "on (" + AI_MODEL + ")" : "off — add ANTHROPIC_API_KEY to .env"}`);
     console.log(`   SMS:       ${smsProvider() === "console" ? "console (codes print here)" : smsProvider()}`);
+    console.log(`   Languages: ${routed.langs + 2} translated · ${routed.added} routing keywords derived`);
     console.log("   Data:      ./data/db.json   (delete the data folder to start over)");
     console.log(`\n  ${line}`);
     console.log("\n   Opening your browser… (keep this window open — it IS the app)\n");

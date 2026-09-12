@@ -338,10 +338,29 @@ window.SECTIONS = [
 
 // Words that mean "stop the interview and get a human now". Checked here for
 // immediate feedback and again on the server, which is what actually counts.
+/* Red flags are decided by a word list, in every language the kiosk offers —
+   never by the model, and never only in Hindi. A Tamil-speaking patient who
+   types "மார்பு வலி" must raise the same flag as one who types "chest pain".
+   The same list exists on the server, and both run: a missed emergency must
+   not depend on an API call succeeding, or on which screen it was typed into. */
 window.RED_WORDS = [
+  // English
   "chest pain", "chest tight", "breathless", "cannot breathe", "can't breathe", "shortness of breath",
   "bleeding", "unconscious", "fainted", "stroke", "paralysis", "seizure", "fits", "convulsion",
+  // Hindi
   "सीने में दर्द", "छाती में दर्द", "जकड़न", "साँस", "सांस", "खून", "बेहोश", "लकवा", "दौरा", "मिर्गी",
+  // Marathi
+  "छातीत दुखणे", "छातीत दुखत", "छातीत कळ", "श्वास", "दम लागतो", "रक्त", "बेशुद्ध", "पक्षाघात", "फेफरे", "झटका",
+  // Gujarati
+  "છાતીમાં દુખાવો", "છાતીમાં દુખ", "શ્વાસ", "દમ ચઢે", "લોહી", "બેભાન", "લકવો", "તાણ", "ખેંચ",
+  // Punjabi
+  "ਛਾਤੀ ਵਿੱਚ ਦਰਦ", "ਛਾਤੀ ਦਾ ਦਰਦ", "ਸਾਹ", "ਦਮ ਘੁਟ", "ਖ਼ੂਨ", "ਖੂਨ", "ਬੇਹੋਸ਼", "ਅਧਰੰਗ", "ਲਕਵਾ", "ਦੌਰਾ", "ਮਿਰਗੀ",
+  // Tamil
+  "மார்பு வலி", "மார்பில் வலி", "மூச்சு", "மூச்சுத் திணறல்", "இரத்தம்", "ரத்தம்", "மயக்கம்",
+  "பக்கவாதம்", "வலிப்பு", "சுயநினைவு இல்லை",
+  // Telugu
+  "ఛాతీ నొప్పి", "ఛాతీలో నొప్పి", "ఊపిరి", "ఊపిరాడటం లేదు", "రక్తం", "స్పృహ తప్ప", "పక్షవాతం",
+  "మూర్ఛ", "ఫిట్స్",
 ];
 window.isRedFlag = function (t) {
   if (!t) return false;

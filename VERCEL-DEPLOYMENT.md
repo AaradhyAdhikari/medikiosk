@@ -41,7 +41,10 @@ You need to add your service account credentials. You have two options:
 Add each field separately:
 ```
 FIREBASE_PROJECT_ID=medikiosk-25458
-FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIE...YOUR KEY HERE...\n-----END PRIVATE KEY-----\n
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----
+...your key...
+-----END PRIVATE KEY-----
+
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@medikiosk-25458.iam.gserviceaccount.com
 ```
 

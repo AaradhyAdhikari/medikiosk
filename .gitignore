@@ -15,3 +15,10 @@ serviceAccountKey.json
 # committed, and must never reach Firebase.
 eval/data/
 eval/report/
+
+# Generated translation review sheets. Rebuilt by tools/i18n-review.js whenever
+# they are needed; the translations themselves live in public/lang/.
+review/
+
+# The commit message the push script reads. Not part of the project.
+.commit-message.txt

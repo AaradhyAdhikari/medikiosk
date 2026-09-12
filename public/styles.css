@@ -433,3 +433,98 @@ select.field{appearance:none;background-image:linear-gradient(45deg,transparent 
 
 html.a11y-contrast .badge.dept,html.a11y-contrast .scopebar,
 html.a11y-contrast .deptnow{border:2px solid #000;color:#000}
+
+/* ── scripts ──────────────────────────────────────────────────────────
+   A script with no font loaded renders as boxes, which looks like a broken
+   kiosk rather than a missing font. Each language stamps its script onto
+   <html> (and onto its own button on the language screen, so every option is
+   legible before anything has been chosen). Devanagari covers Hindi and
+   Marathi and is already the page default. */
+
+html.script-gujr, .chip.script-gujr, [lang="gu"]{font-family:"Noto Sans Gujarati",Mukta,system-ui,sans-serif}
+html.script-guru, .chip.script-guru, [lang="pa"]{font-family:"Noto Sans Gurmukhi",Mukta,system-ui,sans-serif}
+html.script-taml, .chip.script-taml, [lang="ta"]{font-family:"Noto Sans Tamil",Mukta,system-ui,sans-serif}
+html.script-telu, .chip.script-telu, [lang="te"]{font-family:"Noto Sans Telugu",Mukta,system-ui,sans-serif}
+
+/* Tamil and Telugu set taller glyphs than Devanagari at the same point size,
+   and the question headings are already large. A little extra leading stops
+   descenders colliding with the line below at kiosk sizes. */
+html.script-taml .q, html.script-telu .q{line-height:1.42}
+html.script-taml .chip small, html.script-telu .chip small,
+html.script-gujr .chip small, html.script-guru .chip small{line-height:1.45}
+
+/* The Sanskrit terms keep the Devanagari serif only where the script is
+   Devanagari; elsewhere they are transliterated and must use that script's
+   own family, or they fall back to boxes. */
+html.script-gujr .dev{font-family:"Noto Sans Gujarati",serif}
+html.script-guru .dev{font-family:"Noto Sans Gurmukhi",serif}
+html.script-taml .dev{font-family:"Noto Sans Tamil",serif}
+html.script-telu .dev{font-family:"Noto Sans Telugu",serif}
+.badge.lang{background:#F0EAF6;color:#553B7A;border:1px solid #DACDE8}
+html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
+
+/* ── the token slip ───────────────────────────────────────────────────
+   On screen it is the card the patient reads before walking to the desk.
+   On paper it is the only thing that prints. */
+
+.slip{background:#fff;border:2px solid var(--line);border-radius:18px;
+  padding:16px 18px;margin:16px 0;text-align:left}
+.sliphead{display:flex;align-items:baseline;gap:10px;padding-bottom:10px;margin-bottom:12px;
+  border-bottom:1px dashed var(--line);font-size:13px;font-weight:700;color:var(--muted)}
+.sliphead span:first-child{flex:1;letter-spacing:.02em}
+.slipdate{font-weight:600;white-space:nowrap}
+.slipbody{display:flex;align-items:center;gap:18px}
+.slipbody > div:first-child{flex:1;min-width:0}
+.sliplabel{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.slip .token{font-size:56px;line-height:1.05;margin-top:2px}
+.slip .token.pri{color:var(--vermilion)}
+.slipdept{font-size:19px;font-weight:700;line-height:1.3;margin-top:1px}
+.slippri{display:inline-block;margin-top:9px;padding:3px 10px;border-radius:999px;
+  background:var(--vermilion);color:#fff;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.slipqr{flex:none;text-align:center}
+.slipqr svg{display:block;border:1px solid var(--line);border-radius:8px}
+.slipscan{font-size:11px;color:var(--muted);margin-top:5px;max-width:150px;line-height:1.35}
+
+/* Printing.
+   `visibility:hidden` is the usual trick for print-only content and it is the
+   wrong one here: hidden elements keep their boxes, so the kiosk frame still
+   pushes the slip onto a second sheet. Instead the slip is CLONED into a
+   print root at body level and everything else is display:none — no ghost
+   layout, one sheet, predictable on an 80mm thermal roll and on A4.
+
+   Black, not the jade from the screen palette: a cheap reader hesitates over
+   a dark-green QR, and the one at a registration desk is always cheap. */
+@media print{
+  @page{margin:6mm}
+  html,body{background:#fff!important;height:auto!important}
+  body > *{display:none!important}
+  body > .printroot{display:block!important}
+
+  .printroot .slip{width:100%;max-width:100%;margin:0;padding:0;border:0;
+    border-radius:0;box-shadow:none;background:#fff;color:#000}
+  .printroot .sliphead{border-bottom:1px solid #000;color:#000;font-size:10pt;
+    padding-bottom:6pt;margin-bottom:8pt;gap:6pt}
+  .printroot .slipdate{font-size:9pt}
+  /* Receipt layout on paper: the QR gets the full width of the roll rather
+     than half of it. The box below includes the four-module quiet zone the
+     spec requires, so the symbol itself ends up around 36mm — roughly 1.2mm
+     per module, which is what survives a thermal head and a desk scanner.
+     Beside the token it was 26mm, and that is where scans start failing. */
+  .printroot .slipbody{gap:8pt;flex-direction:column;align-items:center;text-align:center}
+  .printroot .slipbody > div:first-child{width:100%}
+  .printroot .sliplabel,.printroot .slipscan{color:#000}
+  .printroot .sliplabel{font-size:7.5pt;letter-spacing:.1em}
+  .printroot .slip .token,.printroot .slip .token.pri{color:#000;font-size:32pt;
+    white-space:nowrap;letter-spacing:-.02em}
+  .printroot .slipdept{font-size:13pt}
+  .printroot .slippri{background:#000;color:#fff;font-size:7.5pt;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .printroot .slipqr{flex:none}
+  .printroot .slipqr{margin-top:2pt}
+  .printroot .slipqr svg{border:0;width:46mm;height:46mm}
+  .printroot .slipcode{color:#000;font-size:10pt;letter-spacing:.14em;margin-top:3pt}
+  .printroot .slipqr svg path{fill:#000!important}
+  .printroot .slipqr svg rect{fill:#fff!important}
+  .printroot .slipscan{font-size:8pt;max-width:60mm;margin-top:3pt}
+}
+.slipcode{font-size:15px;font-weight:600;letter-spacing:.16em;margin-top:6px;color:var(--text)}

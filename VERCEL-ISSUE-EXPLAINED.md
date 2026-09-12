@@ -51,7 +51,7 @@ Value: (paste your ENTIRE firebase-service-account.json content here - the whole
 
 Example of FIREBASE_SERVICE_ACCOUNT value:
 ```json
-{"type":"service_account","project_id":"medikiosk-25458","private_key_id":"cdda...","private_key":"-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----\\n","client_email":"firebase-adminsdk-fbsvc@medikiosk-25458.iam.gserviceaccount.com","client_id":"105...","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40medikiosk-25458.iam.gserviceaccount.com","universe_domain":"googleapis.com"}
+{"type":"service_account","project_id":"YOUR-PROJECT-ID", ... paste the ENTIRE contents of your firebase-service-account.json here, on ONE line ... }
 ```
 
 ⚠️ **CRITICAL:** The JSON must be on ONE LINE with NO line breaks except `\\n` in the private_key field.

@@ -155,10 +155,85 @@ else. Test with your own number first.
 
 ---
 
+# Languages
+
+Seven: **Hindi, English, Marathi, Gujarati, Punjabi, Tamil and Telugu.** Not the buttons — the whole
+interview. Every question, every option, every consent line, every error message.
+
+### How it is built
+
+The kiosk was written bilingual: every string is `L("हिन्दी", "English")` and every question object
+carries `hi` and `en`. Rather than rewrite two hundred call sites, `public/i18n.js` turns that pair
+into a lookup — Hindi and English come from the arguments, every other language from a table keyed
+by the **English** string.
+
+```
+public/i18n.js        the language registry, Sanskrit transliterations, spoken commands
+public/lang/mr.js     one flat file per language, keyed by English
+public/lang/gu.js     nothing in these files is code — a native speaker can edit them directly
+public/lang/pa.js
+public/lang/ta.js
+public/lang/te.js
+```
+
+**To add a language:** add a row to `LANGS` in `i18n.js`, drop a file in `public/lang/`, add its
+`<script>` to `kiosk.html`. No other code changes. A language whose file is missing or empty is not
+offered at all — a button that silently serves Hindi is worse than no button.
+
+**A missing string shows English, never Hindi,** and logs `[i18n]` to the console. A Tamil reader
+cannot tell Hindi from a bug; they can tell English is English.
+
+```
+node tools/i18n-check.js          # coverage per language — exits non-zero if any are short
+node tools/i18n-check.js ta       # list exactly which strings Tamil is missing
+node tools/i18n-review.js ta      # review/ta.html — a side-by-side sheet for a native speaker
+```
+
+### These translations have not been checked by native speakers
+
+They were produced with machine assistance. For a kiosk that asks clinical questions that is a
+starting point, not a finished job — a question that reads oddly in Tamil is a question a patient
+answers wrongly, and the wrong answer reaches a physician looking like fact.
+
+`node tools/i18n-review.js` writes one HTML sheet per language: English, Hindi and the translation
+side by side, in the order a patient meets them, with the **clinical** questions marked so someone
+with only ten minutes knows which lines matter. Corrections go in one file, matched by the English
+line. **Do this before any pilot.** It is also the honest answer if a judge who speaks the language
+finds a clumsy phrase: yes, and here is the review process and the sheet.
+
+### Sanskrit terms are transliterated, not translated
+
+Prakriti, Vikriti, Sara, Samhanana, Agni, Koshtha and the rest are the terms an Ayurvedic physician
+uses by name. Rendering Prakriti as "constitution" in Tamil would lose the term an AIIA examiner is
+listening for. They are written in the reader's own script — प्रकृति, પ્રકૃતિ, ਪ੍ਰਕ੍ਰਿਤੀ, பிரகிருதி,
+ప్రకృతి — from `window.SANSKRIT` in `i18n.js`.
+
+### Safety keywords follow the languages
+
+Two things would have quietly stayed Hindi-only and both are safety-critical:
+
+- **Red flags.** The word list now carries chest pain, breathlessness, bleeding, unconsciousness,
+  paralysis and seizure in all seven languages, in the browser and again on the server. A patient who
+  types `மார்பு வலி` raises the same flag as one who types `chest pain`.
+- **Department routing.** The routing keywords are **derived from the translation files themselves**
+  at server start — `COMPLAINT_ROUTING` in `server.js` maps the phrases a patient actually taps to
+  departments, and every translation of those phrases becomes a keyword. Adding a language adds its
+  routing for free, and a phrase corrected by a native speaker corrects the router too. They cannot
+  drift apart, because there is only one copy. The startup box prints how many were derived.
+
+### What the doctor sees
+
+The summary is always **English** — the physician has three minutes and a queue. But the model is
+told which language the patient answered in, and quotes their own words in their own script with an
+English rendering in brackets. The queue row and the case header both name the language, so a quoted
+Tamil phrase reads as the patient's words rather than as a rendering bug.
+
+---
+
 # Voice
 
 Voice input, spoken prompts, and spoken navigation commands are built in and work with no
-configuration.
+configuration, in every language the kiosk offers.
 
 **It needs a secure context.** That means `http://localhost` or any `https://` address. It will
 **not** work if you open the app from another machine over `http://192.168.x.x`. If you need it on
@@ -167,15 +242,25 @@ a phone or a second laptop, deploy it (below) or use a tunnel.
 **Chrome and Edge only.** Firefox has no Web Speech API. Every screen has a typed and tapped path,
 so nothing is blocked — but demo in Chrome.
 
+**Spoken prompts depend on the machine.** Recognition works in all seven languages, but *reading the
+question aloud* needs a voice installed on that computer, and a laptop may have Hindi and nothing
+else. The kiosk checks at runtime: a language with no voice available is marked `text only` on the
+language screen, and the question screen says so plainly instead of falling silent and looking
+frozen. Typing and tapping are never affected.
+
 **Spoken commands** work on any question screen, in Hindi or English:
 
-| Say | Does |
-|---|---|
-| दोहराएँ · repeat | reads the question again |
-| आगे · next | moves on |
-| पीछे · back | goes back one question |
-| छोड़ें · skip | skips the question |
-| मदद · help | calls staff |
+| Does | Hindi | Marathi | Gujarati | Punjabi | Tamil | Telugu |
+|---|---|---|---|---|---|---|
+| reads the question again | दोहराएँ | पुन्हा | ફરીથી | ਦੁਬਾਰਾ | மீண்டும் | మళ్ళీ |
+| moves on | आगे | पुढे | આગળ | ਅੱਗੇ | அடுத்து | తరువాత |
+| goes back one question | पीछे | मागे | પાછળ | ਪਿੱਛੇ | பின் | వెనుకకు |
+| skips the question | छोड़ें | वगळा | છોડો | ਛੱਡੋ | தவிர் | వదిలేయి |
+| calls staff | मदद | मदत | મદદ | ਮਦਦ | உதவி | సహాయం |
+
+English (`repeat`, `next`, `back`, `skip`, `help`) always works too, whatever the screen language is.
+Beyond English, only the **current** language's words are matched, so a syllable that is a command in
+one language cannot hijack an answer in another.
 
 A short utterance matching one of these is treated as a command; anything longer is treated as an
 answer. That distinction matters — "मुझे आगे बहुत दर्द है" is an answer, not a navigation command.
@@ -211,7 +296,7 @@ tunnel dies when you close the terminal.
 
 # What is real, and what is not
 
-**Real:** automatic department routing — every completed intake is sent to one clinic, specialists get their own
+**Real:** a scannable token slip that prints · seven languages with the whole interview translated, not just the buttons · automatic department routing — every completed intake is sent to one clinic, specialists get their own
 queue, and the assignment can be overruled by any clinician · three identification routes including a genuine Aadhaar Verhoeff checksum · patient
 accounts with a personal login ID and password, layered on top of OTP rather than replacing it ·
 a read-only patient dashboard of past visits, documents and summaries · adaptive
@@ -231,7 +316,9 @@ amend · prescription write-back · granular DPDP consent · audit trail · real
 - **ABHA enrolment.** Numbers are generated locally in the correct 14-digit format. Real enrolment
   needs ABDM sandbox credentials, which require an application and an approval period.
 - **FHIR push.** The bundle is constructed; transmission is stubbed.
-- **Bhashini ASR.** Languages beyond Hindi and English need a Bhashini key.
+- **Bhashini ASR.** Speech recognition in all seven languages runs on the browser's own Web Speech
+  API today, which is Chrome-only and needs a network connection. Bhashini is what a deployment would
+  use, and that needs a key.
 
 **Say this to judges, in these words:** *"ABHA enrolment and the FHIR push are mocked — the
 integration points are written and the bundle is real, but ABDM sandbox access requires
@@ -266,6 +353,47 @@ Your app is **already configured** to use Firebase Realtime Database for real-ti
 - ✅ Cloud backup of all data
 - ✅ Optional: Store uploaded images in Firebase Storage
 - ✅ Falls back to local `db.json` if Firebase is unavailable
+
+---
+
+# The token slip
+
+When the interview finishes the patient gets a token, a department and a QR code, and can print it.
+
+**Scanning it opens that patient's case.** The QR carries `<base>/c/<code>`, which redirects to the
+consultation console with the visit already open — so the desk scans instead of typing a token into a
+search box. If nobody is signed in, the code is held until they are and the case opens straight after
+login.
+
+**The code is eight characters, not the visit's UUID.** A UUID pushes the symbol two versions higher,
+and a denser symbol has smaller modules; on a thermal print under corridor light, module size is the
+whole ball game. The alphabet leaves out `O/0` and `I/1/L` because someone reads it over a counter and
+someone else types it. It is printed under the QR as text too — a QR smudged by a thermal head is a
+dead QR, eight characters are not.
+
+**Set `PUBLIC_URL` before a demo.** The QR has to carry an address the *desk's* device can reach.
+Unset, it falls back to the kiosk's own origin, which is right in production and useless on a laptop —
+a QR that says `localhost` scans perfectly and goes nowhere.
+
+```env
+PUBLIC_URL=https://your-tunnel-or-deployment-url
+```
+
+**The QR is generated in-process.** `public/qr.js` is a byte-mode QR encoder — Reed-Solomon over
+GF(256), all eight masks scored, error-correction level M — in about 300 lines with no dependency and
+no build step, because an OPD kiosk may be on a network that cannot reach a CDN. Output is SVG, not
+canvas: a printer renders vector edges exactly, and a canvas at the wrong pixel ratio gives the soft
+grey edges that make a cheap reader give up.
+
+It was verified against a reference encoder rather than by eye: on 129 payloads, 61 are byte-identical,
+58 differ only in remainder bits (which the spec says shall be zero — this one follows the spec), and
+10 pick a different mask and all decode correctly. The printed slip was then rasterised and decoded
+back at 150 dpi, skewed, blurred and dimmed.
+
+**Printing** clones the slip into a print root and hides everything else, so one sheet comes out with
+the slip and nothing around it. On paper the layout goes vertical — receipt-shaped — which gives the
+QR the full width of an 80mm roll: a 36mm symbol at about 1.2mm per module. Beside the token it was
+26mm, and that is where scans start failing.
 
 ---
 
@@ -372,9 +500,14 @@ public/
   kiosk.html/.js       the entire patient interview
   doctor.html/.js      registration, login, live queue, case view, prescription
   questions.js         the interview itself — edit this to change what is asked
+  i18n.js              the language registry, Sanskrit terms, spoken commands
+  lang/*.js            one translation file per language, keyed by the English string
   styles.css           the design system, including the accessibility modes
   about.html           what is real vs mocked, for judges
 data/                  created on first run; delete to reset
+tools/
+  i18n-check.js        which strings each language is missing
+  i18n-review.js       builds the native-speaker review sheets into review/
 ```
 
 No dependencies, no build step, no framework. That is deliberate: the fewer moving parts, the
@@ -417,6 +550,17 @@ is what enters the record. A history they cannot audit in one glance is a histor
 
 **Only the last four Aadhaar digits are ever stored.** The full number is used to verify the
 checksum and then discarded.
+
+**A missing translation shows English, not Hindi.** A Tamil or Gujarati reader has no way to tell a
+Hindi sentence from a bug, and would sit there assuming they had done something wrong. English at
+least reads as a different language. `tools/i18n-check.js` is there so this never reaches a patient.
+
+**Sanskrit terms are transliterated, not translated.** Prakriti in Tamil script is still Prakriti.
+"Constitution" is not — and an AIIA examiner is listening for the term.
+
+**Routing keywords are derived from the translations.** Twenty-two departments across seven languages
+is a hand-maintained table that would be wrong within a month. Deriving it means a correction by a
+native speaker fixes the routing at the same time.
 
 **Hindi leads, English supports.** The whole argument is that this works for someone who cannot read
 English. An English-first interface would quietly undercut the pitch.

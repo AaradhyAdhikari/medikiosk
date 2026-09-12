@@ -24,6 +24,30 @@
           next follow-up interview starts from.</p>
         </div>
         <div class="panel" style="margin-bottom:14px">
+          <h3>The token slip</h3>
+          <p style="font-size:16px;line-height:1.6;margin:0">The patient leaves with a token, a department and a
+          QR code, and can print it. Scanning the code opens that patient's case on the consultation console, so the
+          registration desk scans instead of typing &mdash; check-in is where an OPD queue actually stalls. The code
+          is eight characters rather than a database id, so the symbol stays coarse enough to scan off a thermal
+          print, and it is printed as text as well in case the QR is smudged. The encoder is written into the app
+          &mdash; no library, no CDN &mdash; because a kiosk may be on a network that cannot reach one, and it was
+          checked against a reference implementation and by decoding the printed slip back, not by eye.</p>
+        </div>
+        <div class="panel" style="margin-bottom:14px">
+          <h3>Seven languages, the whole interview</h3>
+          <p style="font-size:16px;line-height:1.6;margin:0">Hindi, English, Marathi, Gujarati, Punjabi, Tamil and
+          Telugu &mdash; not the buttons, the whole interview: every question, every option, every consent line. A
+          language appears on the first screen only when its translation file is actually complete, and a string
+          nobody has translated shows <b>English rather than Hindi</b>, because a Tamil reader cannot tell a Hindi
+          sentence from a bug. Sanskrit terms &mdash; Prakriti, Vikriti, Agni, Koshtha &mdash; are transliterated
+          into the reader's script rather than translated, because a physician uses them by name. Red-flag detection
+          and department routing follow the languages too: the routing keywords are derived from the translation
+          files themselves, so a phrase corrected by a native speaker corrects the router at the same time.
+          <b>These translations were produced with machine assistance and have not yet been checked by native
+          speakers</b> &mdash; a review sheet per language is generated for exactly that, and it should be done
+          before any pilot.</p>
+        </div>
+        <div class="panel" style="margin-bottom:14px">
           <h3>Where the patient is sent</h3>
           <p style="font-size:16px;line-height:1.6;margin:0">A hospital is a set of departments, so an intake that cannot name one
           has only moved the queue rather than shortened it. Every completed interview is routed to exactly one clinic &mdash; a
@@ -39,7 +63,8 @@
           <p style="font-size:16px;line-height:1.6;margin:0">Three ways to identify — mobile, ABHA number, or Aadhaar with a real
           Verhoeff checksum · <b>a personal login ID and password</b> layered on top of the code, so a patient can return to
           <b>their own dashboard</b> of past visits, documents and summaries, read-only · adaptive question flow with first-visit, follow-up, proxy and emergency branching · voice input,
-          spoken prompts and spoken navigation commands · large-text and high-contrast accessibility modes · a literacy-free body
+          spoken prompts and spoken navigation commands in every language, with a runtime check that says so when a
+          machine has no voice for one · large-text and high-contrast accessibility modes · a literacy-free body
           map · <b>all ten Dashavidha Pariksha parameters</b> with Vikriti separated from Prakriti, plus Agni, Koshtha and
           Ahara-Vihara · document capture with AI extraction of diagnoses, medicines and lab values ·
           <b>a chronological document timeline</b> built from the date printed on each paper, with anything unreadable marked
@@ -54,7 +79,8 @@
           <h3>Mocked, and why</h3>
           <p style="font-size:16px;line-height:1.6;margin:0">ABHA numbers are generated locally in the correct format, and the
           FHIR push to a hospital HIS is built but not transmitted, because ABDM sandbox credentials require an application and an
-          approval period. Multilingual ASR beyond Hindi and English needs a Bhashini key. Everything else — including SMS — is
+          approval period. Speech recognition in all seven languages runs on the browser's own Web Speech API, which is Chrome-only; a
+          deployment would use Bhashini, and that needs a key. Everything else — including SMS — is
           real once configured.</p>
         </div>
         <div class="panel">
