@@ -2,7 +2,7 @@
 /* MediKiosk — the patient kiosk. Vanilla JS, no build step. */
 
 var S = {
-  lang: "hi", screen: "lang", phone: "", otp: "", devCode: "", live: false,
+  lang: "hi", screen: "lang", phone: "", otp: "", otpUntil: 0, devCode: "", live: false,
   method: null,           // "phone" | "abha" | "aadhaar"
   abhaInput: "", aadhaarInput: "",
   name: "", ageYears: "", sex: "", heightCm: "", weightKg: "",
@@ -867,41 +867,79 @@ function scDash() {
   };
 }
 
-function scPhone() {
-  body.innerHTML = steps(1, 8) +
-    '<span class="eyebrow">' + L("पहचान", "Identify") + "</span>" +
-    '<h1 class="q">' + L("अपना मोबाइल नंबर डालिए", "Enter your mobile number") + "</h1>" +
-    '<div class="field mono" id="ph" style="text-align:center;font-size:30px;letter-spacing:.14em">' + (S.phone || "—") + "</div>" +
-    '<p class="lede" style="margin:12px 0 14px">' +
-      L("हम इसी नंबर पर आपकी ABHA आईडी भेजेंगे, ताकि आपको याद रखने की ज़रूरत न पड़े।",
-        "We send your ABHA ID to this number, so you never have to remember it.") + "</p>" +
-    (S.error ? '<div class="notice" style="margin-bottom:12px">' + esc(S.error) + "</div>" : "") +
-    '<div class="keypad">' + [1,2,3,4,5,6,7,8,9].map(function (d) { return '<button data-k="' + d + '">' + d + "</button>"; }).join("") +
-    '<button data-k="del">⌫</button><button data-k="0">0</button><button data-k="ok">✓</button></div>';
+/* Small inline glyphs — the icon set has no chevron, pencil or wordmark heart. */
+var CHEV = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+var PENCIL = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.83 2.83 0 0 0-4-4L4 16v4z"/></svg>';
+var HEART = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.3-8.5-11A4.9 4.9 0 0 1 12 7.6 4.9 4.9 0 0 1 20.5 10c0 5.7-8.5 11-8.5 11z"/></svg>';
 
-  foot.innerHTML = '<button class="btn" id="nx">' + L("आगे बढ़ें", "Continue") + "</button>" +
-    '<button class="btn ghost" id="bk">← ' + L("दूसरा तरीक़ा", "Another way") + "</button>";
+var otpTimer = null;
+
+function brand() {
+  return '<div class="brand">' + HEART + "<span>MediKiosk</span></div>";
+}
+
+/* The phone keypad the reference shows is the iOS one: letters under the
+   digits, an empty well bottom-left, delete bottom-right. */
+var PADKEYS = [
+  ["1",""],["2","ABC"],["3","DEF"],["4","GHI"],["5","JKL"],
+  ["6","MNO"],["7","PQRS"],["8","TUV"],["9","WXYZ"]
+];
+function padHtml() {
+  var h = '<div class="pad">';
+  for (var i = 0; i < PADKEYS.length; i++)
+    h += '<button data-k="' + PADKEYS[i][0] + '"><span class="d">' + PADKEYS[i][0] + "</span>" +
+         (PADKEYS[i][1] ? '<span class="l">' + PADKEYS[i][1] + "</span>" : "") + "</button>";
+  h += '<button class="blank" tabindex="-1"></button>';
+  h += '<button data-k="0"><span class="d">0</span><span class="l">+</span></button>';
+  h += '<button class="del" data-k="del">\u232b</button>';
+  return h + "</div>";
+}
+
+function scPhone() {
+  body.innerHTML =
+    '<div class="login"><div class="top">' + brand() +
+      "<h1>" + L("\u0936\u0941\u0930\u0941\u0906\u0924 \u0915\u0930\u0924\u0947 \u0939\u0948\u0902", "Let's Get You Started") + "</h1>" +
+      '<p class="sub">' + L("\u0905\u092a\u0928\u093e \u092e\u094b\u092c\u093e\u0907\u0932 \u0928\u0902\u092c\u0930 \u0921\u093e\u0932\u093f\u090f, \u0939\u092e \u0909\u0938 \u092a\u0930 \u090f\u0915 \u092c\u093e\u0930 \u0915\u093e \u0915\u094b\u0921 \u092d\u0947\u091c\u0947\u0902\u0917\u0947\u0964",
+        "Enter your phone number, we'll send a one-time code to verify it.") + "</p>" +
+      '<div class="numbox" id="nb"><div class="cc">+91' + CHEV + '</div><div class="num" id="ph"></div></div>' +
+      (S.error ? '<div class="notice" style="margin-top:12px">' + esc(S.error) + "</div>" : "") +
+    '</div><div class="grow"></div><div class="acts">' +
+      '<button class="gobtn" id="nx">' + L("\u0906\u0917\u0947 \u092c\u0922\u093c\u0947\u0902", "Continue") + "</button>" +
+      '<p class="fineprint">' + L("\u0906\u0917\u0947 \u092c\u0922\u093c\u0928\u0947 \u0915\u093e \u092e\u0924\u0932\u092c \u0939\u0948 \u0915\u093f \u0906\u092a ", "By continuing, you agree to our ") +
+        '<a href="/about.html#terms">' + L("\u0936\u0930\u094d\u0924\u094b\u0902", "Terms & Conditions") + "</a>" +
+        L(" \u0914\u0930 ", " and ") +
+        '<a href="/about.html#privacy">' + L("\u0928\u093f\u091c\u0924\u093e \u0928\u0940\u0924\u093f", "Privacy Policy") + "</a>" +
+        L(" \u0938\u0947 \u0938\u0939\u092e\u0924 \u0939\u0948\u0902\u0964", "") + "</p>" +
+      '<button class="altlink" id="bk">' + L("ABHA \u092f\u093e \u0906\u0927\u093e\u0930 \u0938\u0947 \u0906\u0907\u090f", "Use ABHA or Aadhaar instead") + "</button>" +
+    "</div>" + padHtml() + "</div>";
+  foot.innerHTML = "";
+
   document.getElementById("bk").onclick = function () { S.error = ""; go("identify"); };
   var nx = document.getElementById("nx");
   var out = document.getElementById("ph");
-  function upd() { out.textContent = S.phone || "—"; nx.disabled = S.phone.length !== 10 || S.busy; }
+  var box = document.getElementById("nb");
+
+  function upd() {
+    out.innerHTML = S.phone ? esc(S.phone) : '<span class="ghost">9876543210</span>';
+    box.classList.toggle("on", S.phone.length > 0);
+    nx.disabled = S.phone.length !== 10 || S.busy;
+  }
   upd();
 
   async function submit() {
     if (S.phone.length !== 10 || S.busy) return;
-    S.busy = true; S.error = ""; nx.textContent = L("भेजा जा रहा है…", "Sending…"); nx.disabled = true;
+    S.busy = true; S.error = ""; nx.textContent = L("\u092d\u0947\u091c\u093e \u091c\u093e \u0930\u0939\u093e \u0939\u0948\u2026", "Sending\u2026"); nx.disabled = true;
     try {
       var r = await api("/api/otp/send", { phone: S.phone });
       S.devCode = r.code || ""; S.live = !!r.live;
-      S.maskedPhone = "•••••• " + S.phone.slice(-4);
-      S.otp = ""; S.busy = false; go("otp");
+      S.maskedPhone = S.phone;
+      S.otp = ""; S.otpUntil = Date.now() + 20000; S.busy = false; go("otp");
     } catch (e) { S.error = e.message; S.busy = false; render(); }
   }
   body.onclick = function (e) {
     var b = e.target.closest("[data-k]"); if (!b) return;
     var k = b.dataset.k;
     if (k === "del") S.phone = S.phone.slice(0, -1);
-    else if (k === "ok") return submit();
     else if (S.phone.length < 10) S.phone += k;
     upd();
   };
@@ -909,49 +947,87 @@ function scPhone() {
 }
 
 function scOtp() {
-  body.innerHTML = steps(2, 8) +
-    '<span class="eyebrow">' + L("पहचान", "Identify") + "</span>" +
-    '<h1 class="q">' + (S.knownName
-      ? LX("नमस्ते {}", "Welcome back, {}", S.knownName)
-      : L("नंबर की पुष्टि कीजिए", "Confirm your number")) + "</h1>" +
-    '<p class="q-en">' + LX("कोड {} पर भेजा गया",
-      "Code sent to {}", S.maskedPhone || S.phone) + "</p>" +
-    '<div class="otp" id="ot"></div>' +
-    (S.devCode ? '<div class="notice" style="margin-top:12px">' +
-      L("कोई SMS गेटवे नहीं जुड़ा है, इसलिए कोड यहीं दिख रहा है: ", "No SMS gateway is configured, so your code is shown here: ") +
-      '<b class="mono">' + esc(S.devCode) + "</b></div>"
-      : '<div class="notice jade" style="margin-top:12px">' + ICON("speaker",17) + " " +
-        L("कोड आपके फ़ोन पर SMS से भेजा गया है।", "The code has been sent to your phone by SMS.") + "</div>") +
-    (S.error ? '<div class="notice" style="margin-top:12px">' + esc(S.error) + "</div>" : "") +
-    '<div class="keypad" style="margin-top:14px">' + [1,2,3,4,5,6,7,8,9].map(function (d) { return '<button data-k="' + d + '">' + d + "</button>"; }).join("") +
-    '<button data-k="del">⌫</button><button data-k="0">0</button><button data-k="fill">' + L("भरें", "Fill") + "</button></div>";
+  if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+  if (!S.otpUntil) S.otpUntil = Date.now() + 20000;
+  var autoT = null;
 
-  foot.innerHTML = '<button class="btn" id="nx">' + L("पुष्टि करें", "Verify") + "</button>" +
-    '<button class="btn ghost" id="bk">← ' + L("पीछे", "Back") + "</button>";
+  body.innerHTML =
+    '<div class="login"><div class="top">' + brand() +
+      "<h1>" + (S.knownName
+        ? LX("\u0928\u092e\u0938\u094d\u0924\u0947 {}", "Welcome Back, {}", S.knownName)
+        : L("\u0915\u094b\u0921 \u092d\u0947\u091c \u0926\u093f\u092f\u093e \u0939\u0948", "We Sent You a Code")) + "</h1>" +
+      '<p class="sub">' + L("\u091b\u0939 \u0905\u0902\u0915\u094b\u0902 \u0915\u093e \u0915\u094b\u0921 \u0921\u093e\u0932\u093f\u090f, \u091c\u094b \u0939\u092e\u0928\u0947 \u0906\u092a\u0915\u0947 \u0928\u0902\u092c\u0930 \u092a\u0930 \u092d\u0947\u091c\u093e \u0939\u0948",
+        "Enter the 6-digit code, we've sent to your phone number") + "<br>" +
+        '<b id="edit" style="cursor:pointer">' + esc(S.maskedPhone || S.phone) + " " + PENCIL + "</b></p>" +
+      '<div class="cells" id="ot"></div>' +
+      (S.devCode ? '<div class="notice" id="fill" style="margin-top:12px;cursor:pointer">' +
+        L("\u0915\u094b\u0908 SMS \u0917\u0947\u091f\u0935\u0947 \u0928\u0939\u0940\u0902 \u0939\u0948 \u2014 \u0915\u094b\u0921 \u092d\u0930\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f \u092f\u0939\u093e\u0901 \u0926\u092c\u093e\u0907\u090f: ",
+          "No SMS gateway \u2014 tap here to fill the code: ") + '<b class="mono">' + esc(S.devCode) + "</b></div>" : "") +
+      (S.error ? '<div class="notice" style="margin-top:12px">' + esc(S.error) + "</div>" : "") +
+    '</div><div class="grow"></div><div class="acts">' +
+      '<button class="gobtn" id="nx">' + L("\u092a\u0941\u0937\u094d\u091f\u093f \u0915\u0930\u0947\u0902", "Verify") + "</button>" +
+      '<div id="av"></div><div class="retryline" id="retry"></div>' +
+      '<button class="altlink" id="bk">' + L("\u092a\u0940\u091b\u0947", "Back") + "</button>" +
+    "</div>" + padHtml() + "</div>";
+  foot.innerHTML = "";
 
   var nx = document.getElementById("nx");
+
   function draw() {
     var h = "";
-    for (var i = 0; i < 6; i++) h += '<span class="' + (i === S.otp.length ? "f" : "") + '">' + (S.otp[i] || "") + "</span>";
+    for (var i = 0; i < 6; i++)
+      h += '<span class="' + (i === S.otp.length ? "f" : "") + '">' + (S.otp[i] || "") + "</span>";
     document.getElementById("ot").innerHTML = h;
     nx.disabled = S.otp.length !== 6 || S.busy;
+    /* The reference says "auto verifying OTP". A kiosk browser cannot read the
+       patient's SMS, so what we actually promise is narrower and true: once six
+       digits are in, they do not have to go find the button. */
+    var av = document.getElementById("av");
+    if (av) av.innerHTML = (S.otp.length === 6 && !S.busy)
+      ? '<div class="autov"><span class="sp"></span>' +
+        L("\u0905\u092a\u0928\u0947 \u0906\u092a \u091c\u093e\u0901\u091a\u093e \u091c\u093e \u0930\u0939\u093e \u0939\u0948", "Auto Verifying OTP") + "</div>" : "";
+    if (S.otp.length === 6 && !S.busy && !autoT)
+      autoT = setTimeout(function () { autoT = null; submit(); }, 550);
   }
-  draw();
+
+  function drawRetry() {
+    var el = document.getElementById("retry");
+    if (!el) { if (otpTimer) { clearInterval(otpTimer); otpTimer = null; } return; }
+    var left = Math.max(0, Math.ceil(((S.otpUntil || 0) - Date.now()) / 1000));
+    if (left > 0) { el.textContent = LX("{} \u0938\u0947\u0915\u0902\u0921 \u092e\u0947\u0902 \u0926\u094b\u092c\u093e\u0930\u093e", "Retry in {} Seconds", left); return; }
+    if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+    el.innerHTML = '<button id="rs">' + L("\u0915\u094b\u0921 \u0926\u094b\u092c\u093e\u0930\u093e \u092d\u0947\u091c\u0947\u0902", "Resend code") + "</button>";
+    document.getElementById("rs").onclick = resend;
+  }
+
+  async function resend() {
+    if (S.busy) return;
+    S.busy = true; S.error = "";
+    var el = document.getElementById("retry");
+    if (el) el.textContent = L("\u092d\u0947\u091c\u093e \u091c\u093e \u0930\u0939\u093e \u0939\u0948\u2026", "Sending\u2026");
+    try {
+      var r = await api("/api/otp/send", { phone: S.phone });
+      S.devCode = r.code || ""; S.live = !!r.live;
+      S.otp = ""; S.otpUntil = Date.now() + 20000; S.busy = false; render();
+    } catch (e) { S.error = e.message; S.busy = false; render(); }
+  }
+
+  draw(); drawRetry();
+  otpTimer = setInterval(drawRetry, 1000);
 
   async function submit() {
     if (S.otp.length !== 6 || S.busy) return;
-    S.busy = true; S.error = ""; nx.textContent = L("जाँचा जा रहा है…", "Checking…"); nx.disabled = true;
+    S.busy = true; S.error = ""; nx.textContent = L("\u091c\u093e\u0901\u091a\u093e \u091c\u093e \u0930\u0939\u093e \u0939\u0948\u2026", "Checking\u2026"); nx.disabled = true;
     try {
       var r = await api("/api/otp/verify", { phone: S.phone, code: S.otp });
+      if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+      S.otpUntil = 0;
       S.abha = r.abhaJustCreated || (r.patient && r.patient.abhaNumber) || null;
       S.knownName = (r.patient && r.patient.name) || "";
       S.isNew = !!r.abhaJustCreated;
       S.hasAccount = !!r.hasAccount;
       S.account = r.patient && r.patient.loginId ? r.patient : null;
       S.busy = false;
-      // A returning patient already has a profile; only a new one is asked.
-      // Either way, a patient without an account is offered one here — the
-      // code has just proved the phone, which is the right moment to ask.
       if (!S.knownName) { S.consentBack = "account"; return go("profile"); }
       if (!S.hasAccount) { S.consentBack = "account"; return go("account"); }
       S.consentBack = "otp";
@@ -959,17 +1035,22 @@ function scOtp() {
     } catch (e) { S.error = e.message; S.busy = false; render(); }
   }
   body.onclick = function (e) {
+    if (e.target.closest("#fill")) { S.otp = S.devCode || ""; return draw(); }
     var b = e.target.closest("[data-k]"); if (!b) return;
     var k = b.dataset.k;
+    if (autoT) { clearTimeout(autoT); autoT = null; }
     if (k === "del") S.otp = S.otp.slice(0, -1);
-    else if (k === "fill") S.otp = S.devCode || "";
     else if (S.otp.length < 6) S.otp += k;
     draw();
   };
   nx.onclick = submit;
+  function leave(to) {
+    if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+    S.otp = ""; S.error = ""; S.otpUntil = 0; go(to);
+  }
+  document.getElementById("edit").onclick = function () { leave("phone"); };
   document.getElementById("bk").onclick = function () {
-    S.otp = ""; S.error = "";
-    go(S.method === "abha" ? "abha" : S.method === "aadhaar" ? "aadhaar" : "phone");
+    leave(S.method === "abha" ? "abha" : S.method === "aadhaar" ? "aadhaar" : "phone");
   };
 }
 

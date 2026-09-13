@@ -528,3 +528,72 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
   .printroot .slipscan{font-size:8pt;max-width:60mm;margin-top:3pt}
 }
 .slipcode{font-size:15px;font-weight:600;letter-spacing:.16em;margin-top:6px;color:var(--text)}
+
+/* ── login screens: phone entry & OTP ───────────────
+   Orientation taken from the supplied reference — content at the top, the
+   action low on the screen, and a real keypad tray welded to the bottom
+   edge. Colours stay on the house palette. */
+
+.kfoot:empty{display:none}
+
+.login{flex:1;display:flex;flex-direction:column;margin:-26px -24px -12px;
+  background:var(--surface);color:var(--text)}
+.login .top{padding:20px 22px 0}
+.login .grow{flex:1;min-height:18px}
+.login .acts{padding:0 22px 12px}
+
+.brand{display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;
+  color:var(--ground);margin-bottom:18px}
+.brand svg{width:22px;height:22px;color:var(--jade)}
+
+.login h1{font-size:27px;line-height:1.2;font-weight:800;margin:0 0 7px;letter-spacing:-.01em}
+.login .sub{font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 18px}
+.login .sub b{color:var(--jade);font-weight:700}
+
+/* one box, country code and number sharing it, divided by a hairline */
+.numbox{display:flex;align-items:stretch;border:1.5px solid var(--line);border-radius:11px;
+  background:#fff;overflow:hidden;height:54px}
+.numbox.on{border-color:var(--jade);box-shadow:0 0 0 3px var(--jade-soft)}
+.numbox .cc{display:flex;align-items:center;gap:6px;padding:0 13px;font-size:16px;font-weight:700;
+  border-right:1.5px solid var(--line);flex:none}
+.numbox .cc svg{opacity:.5}
+.numbox .num{flex:1;display:flex;align-items:center;padding:0 14px;font-size:18px;font-weight:600;
+  font-variant-numeric:tabular-nums;letter-spacing:.03em;min-width:0}
+.numbox .num .ghost{color:#9AAFA2;font-weight:500}
+
+.gobtn{display:block;width:100%;padding:16px;border-radius:12px;background:var(--ground);
+  color:var(--on-dark);font-size:17px;font-weight:700;text-align:center}
+.gobtn:hover{background:var(--ground3)}
+.gobtn:disabled{opacity:.35;cursor:not-allowed}
+
+.fineprint{font-size:12px;line-height:1.55;color:var(--muted);text-align:center;margin:9px 0 0}
+.fineprint a{color:var(--jade);font-weight:600}
+.altlink{display:block;width:100%;text-align:center;font-size:14px;color:var(--muted);
+  font-weight:700;margin-top:8px;padding:6px;border-radius:8px}
+.altlink:hover{color:var(--jade);background:var(--surface2)}
+
+.cells{display:flex;gap:9px}
+.cells span{flex:1;height:56px;border:1.5px solid var(--line);border-radius:10px;background:#fff;
+  display:grid;place-items:center;font-size:23px;font-weight:700}
+.cells span.f{border-color:var(--jade);box-shadow:0 0 0 3px var(--jade-soft)}
+
+.autov{display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;
+  font-weight:700;color:var(--jade);margin-top:9px}
+.autov .sp{width:12px;height:12px;border:2px solid var(--jade-soft);border-top-color:var(--jade);
+  border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.retryline{text-align:center;font-size:13.5px;color:var(--text);margin-top:5px;min-height:20px}
+.retryline button{font-size:13.5px;font-weight:700;color:var(--jade);padding:3px 6px;border-radius:6px}
+.retryline button:hover{background:var(--jade-soft)}
+
+/* Keypad tray: flat keys on a tinted ground, not twelve bordered cards. */
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+  padding:7px 5px 9px;background:var(--surface2);border-top:1px solid var(--line);flex:none}
+.pad button{height:48px;border-radius:6px;background:#fff;box-shadow:0 1px 0 rgba(11,31,26,.22);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.pad button:active{background:var(--surface);box-shadow:none}
+.pad .d{font-size:25px;font-weight:500}
+.pad .l{font-size:9px;font-weight:700;letter-spacing:.14em;margin-top:2px;color:var(--muted)}
+.pad .blank{background:none;box-shadow:none;pointer-events:none}
+.pad .del{background:#BCCCC0;box-shadow:none;font-size:19px}
+.pad .del:active{background:#A9BCAE}
