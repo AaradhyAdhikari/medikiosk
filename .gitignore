@@ -22,3 +22,6 @@ review/
 
 # The commit message the push script reads. Not part of the project.
 .commit-message.txt
+
+# transcript of the last push, written by commit-and-push.bat
+push-log.txt
