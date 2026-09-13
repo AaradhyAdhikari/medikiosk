@@ -25,3 +25,6 @@ review/
 
 # transcript of the last push, written by commit-and-push.bat
 push-log.txt
+.push-request
+.push-result
+.push-result.tmp
