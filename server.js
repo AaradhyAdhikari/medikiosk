@@ -218,6 +218,13 @@ function verifyPassword(pw, stored) {
   } catch { return false; }
 }
 const sixDigits = () => String(100000 + (crypto.randomBytes(4).readUInt32BE(0) % 900000));
+// The SMS text promises "It expires in 10 minutes". This constant is what makes
+// that true — /api/otp/verify enforces it rather than merely claiming it.
+// The send-throttle counts requests over this same window on purpose, so the
+// "five codes per phone" cap reads as "at most five codes live at once".
+// The two were separate numbers that happened to agree; tying them together is
+// a deliberate choice, and changing this value moves both.
+const OTP_TTL_MS = 10 * 60 * 1000;
 
 /* A short code for the token QR and for the desk to type when a slip is torn.
    Deliberately not the visit's UUID: a UUID is 36 characters, which pushes the
@@ -1345,7 +1352,7 @@ async function api(req, res, pathname) {
     const digits = String(phone || "").replace(/\D/g, "");
     if (digits.length !== 10) return bad(res, 400, "Enter a 10-digit mobile number.");
 
-    const since = Date.now() - 10 * 60 * 1000;
+    const since = Date.now() - OTP_TTL_MS;
     const recent = store.otps.filter((o) => o.phone === digits && new Date(o.at).getTime() > since);
     if (recent.length >= 5) return bad(res, 429, "Too many codes requested. Wait ten minutes.");
 
@@ -1374,6 +1381,14 @@ async function api(req, res, pathname) {
     const digits = String(phone || "").replace(/\D/g, "");
     const challenge = [...store.otps].reverse().find((o) => o.phone === digits && !o.used);
     if (!challenge) return bad(res, 400, "That code has expired. Ask for a new one.");
+    // The SMS told the patient this code is only good for 10 minutes. Before
+    // this check existed, that was a promise the server never kept — a code
+    // photographed off a slip hours earlier, or glanced at on a shared kiosk
+    // screen, still verified. Expiry is enforced here, not just claimed in text.
+    if (Date.now() - new Date(challenge.at).getTime() > OTP_TTL_MS) {
+      challenge.used = true; save();
+      return bad(res, 400, "That code has expired. Ask for a new one.");
+    }
     if (challenge.attempts >= 5) return bad(res, 429, "Too many wrong attempts.");
     if (challenge.code !== String(code || "")) {
       challenge.attempts++; save();
