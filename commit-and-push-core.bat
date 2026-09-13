@@ -25,6 +25,28 @@ if not exist "%~dp0.commit-message.txt" (
   exit /b 1
 )
 
+REM --- never push through a credential baked into the remote URL -----
+REM  A token in the origin URL sits in .git/config in plaintext, and it also
+REM  breaks non-interactive pushes: git reads the token as the USERNAME and
+REM  then has nothing to answer the password prompt with, which fails hard in
+REM  a window with no tty. Strip it and let the credential helper answer.
+set "RURL="
+for /f "delims=" %%u in ('git remote get-url origin 2^>nul') do set "RURL=%%u"
+echo %RURL% | findstr /C:"@" >nul 2>&1
+if errorlevel 1 goto :urlok
+echo.
+echo NOTICE: origin had a credential embedded in its URL. Stripping it.
+echo That credential is exposed in .git/config - treat it as leaked and
+echo revoke it at the provider. Removing it here does not un-leak it.
+set "URLTAIL="
+for /f "tokens=1,* delims=@" %%a in ("%RURL%") do set "URLTAIL=%%b"
+if "%URLTAIL%"=="" goto :urlok
+git remote set-url origin "https://%URLTAIL%"
+echo New origin is now:
+git remote get-url origin
+echo.
+:urlok
+
 REM --- refuse to push a private key, whatever else happens -----------
 REM  Two patterns, because the marker alone is not enough: these files
 REM  legitimately contain "-----BEGIN PRIVATE KEY-----\n..." as a
