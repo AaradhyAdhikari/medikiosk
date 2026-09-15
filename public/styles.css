@@ -539,7 +539,7 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .login{flex:1;display:flex;flex-direction:column;margin:-26px -24px -12px;
   background:var(--surface);color:var(--text)}
 .login .top{padding:20px 22px 0}
-.login .grow{flex:1;min-height:18px}
+.login .grow{flex:1;min-height:12px}
 .login .acts{padding:0 22px 12px}
 
 .brand{display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;
@@ -587,9 +587,11 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .retryline button:hover{background:var(--jade-soft)}
 
 /* Keypad tray: flat keys on a tinted ground, not twelve bordered cards. */
-.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
-  padding:7px 5px 9px;background:var(--surface2);border-top:1px solid var(--line);flex:none}
-.pad button{height:48px;border-radius:6px;background:#fff;box-shadow:0 1px 0 rgba(11,31,26,.22);
+/* The keyboard owns the lower half of the screen, as it does on a phone. */
+.pad{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(4,1fr);
+  gap:7px;padding:9px 6px 11px;background:var(--surface2);
+  border-top:1px solid var(--line);flex:0 0 46%}
+.pad button{height:auto;min-height:0;border-radius:6px;background:#fff;box-shadow:0 1px 0 rgba(11,31,26,.22);
   display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
 .pad button:active{background:var(--surface);box-shadow:none}
 .pad .d{font-size:25px;font-weight:500}
@@ -597,3 +599,70 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .pad .blank{background:none;box-shadow:none;pointer-events:none}
 .pad .del{background:#BCCCC0;box-shadow:none;font-size:19px}
 .pad .del:active{background:#A9BCAE}
+
+/* ── emergency signalling (doctor console) ──────────
+   A waiting emergency has to survive a tired clinician glancing at a busy
+   screen. Loud on purpose: full width, vermilion, alert glyph, and a
+   standing call to action. */
+
+.emgbar{display:flex;align-items:center;gap:15px;width:100%;text-align:left;
+  padding:16px 20px;margin:0 0 14px;border-radius:16px;
+  background:var(--vermilion);color:#fff;border:0;
+  box-shadow:0 10px 26px -10px rgba(178,58,43,.75);
+  animation:emgpulse 2.4s ease-in-out infinite}
+.emgbar:hover{background:#9E3325}
+.emgbar .emgic{flex:none;display:grid;place-items:center;width:52px;height:52px;
+  border-radius:14px;background:rgba(255,255,255,.18)}
+.emgbar .emgic svg{color:#fff}
+.emgbar .emgtxt{flex:1;min-width:0;display:block}
+.emgbar .emgtxt b{display:block;font-size:20px;font-weight:800;letter-spacing:.04em}
+.emgbar .emgtxt small{display:block;font-size:13.5px;opacity:.9;margin-top:3px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace}
+.emgbar .emgcta{flex:none;font-size:15px;font-weight:700;
+  background:rgba(255,255,255,.2);padding:10px 16px;border-radius:10px}
+
+@keyframes emgpulse{
+  0%,100%{box-shadow:0 10px 26px -10px rgba(178,58,43,.75)}
+  50%    {box-shadow:0 10px 30px -6px rgba(178,58,43,.95)}
+}
+/* Some people get motion sick, and an emergency banner is the last thing
+   that should make a clinician look away from the screen. */
+@media (prefers-reduced-motion:reduce){ .emgbar{animation:none} }
+
+/* the EMERGENCY pill, in the queue row and on the case header */
+.badge.red.big{font-size:14px;font-weight:800;letter-spacing:.06em;padding:7px 12px;
+  display:inline-flex;align-items:center;gap:6px}
+.badge.red.big svg{color:#fff}
+
+/* an emergency row should be readable as such from across the room */
+.qrow.flag{border-left:6px solid var(--vermilion);background:var(--vermilion-soft)}
+.qrow.flag .nm{color:#8E2D20}
+
+/* the intake-flag panel inside a case */
+.alert.emg{border-width:3px}
+.alert.emg .emghd{display:flex;align-items:center;gap:10px;color:var(--vermilion)}
+.alert.emg .emghd b{font-size:19px;font-weight:800;letter-spacing:.05em}
+.alert.emg .emghd svg{flex:none}
+
+/* ── patient-side emergency button ─────────────────
+   Sits in the kiosk bar, so it is on screen at the language chooser, through
+   the login, and on every question. Red and labelled, matching the alert the
+   clinician sees on the other side, so both ends of the system call the same
+   thing by the same name. */
+.kbar .emgbtn{width:auto;min-height:38px;padding:0 14px;gap:8px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--vermilion);color:#fff;border-radius:11px;
+  font-size:13px;font-weight:800;letter-spacing:.07em;
+  box-shadow:0 0 0 0 rgba(178,58,43,.55);animation:kemg 2.6s ease-in-out infinite}
+.kbar .emgbtn:hover{background:#9E3325}
+.kbar .emgbtn svg{flex:none}
+.kbar .emgbtn .emglbl{white-space:nowrap}
+
+@keyframes kemg{
+  0%,100%{box-shadow:0 0 0 0 rgba(178,58,43,.55)}
+  50%    {box-shadow:0 0 0 7px rgba(178,58,43,0)}
+}
+@media (prefers-reduced-motion:reduce){ .kbar .emgbtn{animation:none} }
+
+/* Narrow kiosk: keep the glyph, drop the word rather than wrap the bar. */
+@media (max-width:430px){ .kbar .emgbtn .emglbl{display:none} .kbar .emgbtn{padding:0 11px} }

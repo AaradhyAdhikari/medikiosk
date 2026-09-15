@@ -215,7 +215,7 @@ async function loadQueue() {
 function badgeFor(v) {
   if (v.status === "ASSESSED") return '<span class="badge jade">' + ICON("check",12) + ' Assessed</span>';
   if (v.status === "IN_CONSULT") return '<span class="badge haldi">In consultation</span>';
-  if (v.redFlag) return '<span class="badge red">Red flag</span>';
+  if (v.redFlag) return '<span class="badge red big">' + ICON("alert", 15) + " EMERGENCY</span>";
   return '<span class="badge grey">Waiting</span>';
 }
 
@@ -289,11 +289,36 @@ function scopeBar(scope) {
     '<button class="badge grey" id="scopeon" style="padding:7px 12px">Show all departments</button></div>';
 }
 
+/* A waiting emergency is the one thing on this screen that cannot be allowed
+   to scroll past. It sits above the department filter and above the stats,
+   full width, and it is a button: the fastest route to the patient is one
+   click, not "find the red row". */
+function emergencyBar(active) {
+  var em = active.filter(function (v) { return v.redFlag; });
+  if (!em.length) return "";
+  var toks = em.slice(0, 4).map(function (v) { return v.token; }).join(" · ") +
+             (em.length > 4 ? " · +" + (em.length - 4) + " more" : "");
+  return '<button class="emgbar" id="emgjump" data-goto="' + esc(em[0].id) + '">' +
+    '<span class="emgic">' + ICON("alert", 34) + "</span>" +
+    '<span class="emgtxt">' +
+      "<b>" + em.length + " EMERGENCY " + (em.length === 1 ? "CASE" : "CASES") + " WAITING</b>" +
+      "<small>" + esc(toks) + " · see before anyone else</small>" +
+    "</span>" +
+    '<span class="emgcta">Open now &rarr;</span></button>';
+}
+
 function renderQueue() {
   var d = D.data || { visits: [], stats: {} };
   var active = d.visits.filter(function (v) { return v.status !== "ASSESSED"; });
   var done = d.visits.filter(function (v) { return v.status === "ASSESSED"; });
-  var rank = function (v) { return v.status === "IN_CONSULT" ? 2 : v.redFlag ? 1 : 0; };
+  /* An emergency outranks even the patient currently in consultation. The
+     case being consulted is already on the clinician's screen; the queue's
+     job is to say what must be seen next, and that is never a routine case. */
+  var rank = function (v) {
+    if (v.redFlag) return 3;
+    if (v.status === "IN_CONSULT") return 2;
+    return 0;
+  };
   active.sort(function (a, b) { return rank(b) - rank(a); });
 
   shell(
@@ -302,10 +327,11 @@ function renderQueue() {
       (D.clinician.room ? " · " + esc(D.clinician.room) : "") + "</div></div>" +
     '<span class="spacer"></span><button class="badge grey" id="out" style="padding:7px 13px">Sign out</button></div>' +
     '<div class="dbody">' +
+      emergencyBar(active) +
       scopeBar(d.scope) +
       '<div class="stats">' +
         '<div class="stat"><b>' + (d.stats.waiting || 0) + "</b><span>WAITING NOW</span></div>" +
-        '<div class="stat"><b style="color:var(--vermilion)">' + (d.stats.redFlags || 0) + "</b><span>RED FLAGS</span></div>" +
+        '<div class="stat"><b style="color:var(--vermilion)">' + (d.stats.redFlags || 0) + "</b><span>EMERGENCY</span></div>" +
         '<div class="stat"><b style="color:var(--jade)">' + (d.stats.assessed || 0) + "</b><span>ASSESSED</span></div>" +
         '<div class="stat"><b>' + (d.stats.total || 0) + "</b><span>INTAKES TODAY</span></div>" +
         '<div class="stat"><b style="color:var(--jade)">' + (d.stats.minutesSaved || 0) +
@@ -326,6 +352,9 @@ function renderQueue() {
   if (on) on.onclick = function () { D.showAll = true; loadQueue(); };
   var off = document.getElementById("scopeoff");
   if (off) off.onclick = function () { D.showAll = false; loadQueue(); };
+
+  var emg = document.getElementById("emgjump");
+  if (emg) emg.onclick = function () { openVisit(emg.dataset.goto); };
 
   var lx = document.getElementById("loadex");
   if (lx) lx.onclick = async function () {
@@ -462,7 +491,7 @@ function renderCase() {
       "</div></div>" +
     '<span class="spacer"></span>' +
     (v.department ? '<span class="badge dept" style="padding:8px 13px">' + esc(deptName(v.department)) + "</span>" : "") +
-    (v.redFlag ? '<span class="badge red">Red flag</span>' : "") + "</div>" +
+    (v.redFlag ? '<span class="badge red big">' + ICON("alert", 15) + " EMERGENCY</span>" : "") + "</div>" +
 
     '<div class="dbody">' +
       '<div class="actionbar">' +
@@ -476,9 +505,13 @@ function renderCase() {
       "</div>" +
 
       (s.redFlags && s.redFlags.length
-        ? '<div class="alert" style="margin-bottom:16px;padding:14px 16px"><b style="color:var(--vermilion);font-size:16px">' + ICON("alert",17) + ' Flagged at intake</b>' +
-          '<ul style="margin:6px 0 0;padding-left:20px;font-size:15.5px">' +
-          s.redFlags.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul></div>"
+        ? '<div class="alert emg" style="margin-bottom:16px">' +
+          '<div class="emghd">' + ICON("alert", 26) + "<b>EMERGENCY — FLAGGED AT INTAKE</b></div>" +
+          '<ul style="margin:8px 0 0;padding-left:22px;font-size:16.5px;line-height:1.6;font-weight:600">' +
+          s.redFlags.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul>" +
+          '<p style="margin:10px 0 0;font-size:13.5px;color:#7A2A1E">' +
+            "Raised by the intake screening, not by examination. Confirm or clear it yourself." +
+          "</p></div>"
         : "") +
 
       '<div class="split"><div>' +
@@ -535,20 +568,34 @@ function renderCase() {
             " Never an autonomous diagnosis. Nothing here enters the record until you accept or amend it.</p>" +
         "</div>" +
 
-        (s.assessment || (s.differentials && s.differentials.length) || (s.investigations && s.investigations.length)
-          ? '<div class="assess"><h3>AI assessment · for your consideration</h3>' +
+        /* This block is deliberately UNCONDITIONAL. It used to disappear when
+           the model returned nothing, which meant a clinician saw it on the
+           alarming cases and not on the quiet ones — so its absence started to
+           read as reassurance. That is a signal this system must never send.
+           The heading appears on every summary; what varies is what it says.
+           An empty section says "nothing offered", never nothing at all. */
+        (function () {
+          var LBL = 'font-size:12px;font-weight:700;letter-spacing:.1em;' +
+                    'text-transform:uppercase;color:#14604D;margin:0 0 6px';
+          var NONE = 'font-size:15px;color:var(--muted);margin:0 0 13px';
+          return '<div class="assess"><h3>AI assessment · for your consideration</h3>' +
             '<p class="dis">Pattern-matching from the intake interview only. No examination has been performed and no diagnosis is asserted.</p>' +
-            (s.assessment ? '<p style="font-size:16px;line-height:1.6;margin:0 0 13px">' + esc(s.assessment) + "</p>" : "") +
+            '<p style="font-size:16px;line-height:1.6;margin:0 0 13px">' +
+              esc(s.assessment ||
+                "No assessment came back for this intake. Read the history above on its own terms — " +
+                "a blank here is a gap in the tooling, not a finding that nothing is wrong.") + "</p>" +
+            '<div style="' + LBL + '">Worth ruling in or out</div>' +
             (s.differentials && s.differentials.length
-              ? '<div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#14604D;margin:0 0 6px">Worth ruling in or out</div>' +
-                '<div style="margin-bottom:13px">' + s.differentials.map(function (x) {
+              ? '<div style="margin-bottom:13px">' + s.differentials.map(function (x) {
                   return '<div class="dxrow"><b>' + esc(x.condition) + "</b><small>" + esc(x.why) + "</small></div>";
-                }).join("") + "</div>" : "") +
+                }).join("") + "</div>"
+              : '<p style="' + NONE + '">Nothing specific offered for this presentation.</p>') +
+            '<div style="' + LBL + '">Examinations or tests to consider</div>' +
             (s.investigations && s.investigations.length
-              ? '<div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#14604D;margin:0 0 6px">Examinations or tests to consider</div>' +
-                "<ul>" + s.investigations.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
-            "</div>"
-          : "") +
+              ? "<ul>" + s.investigations.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>"
+              : '<p style="' + NONE + '">Nothing specific offered for this presentation.</p>') +
+            "</div>";
+        })() +
 
         (s.suggestedQuestions && s.suggestedQuestions.length
           ? '<div class="panel" style="margin-top:16px"><h3>Worth asking</h3><ul style="margin:0;padding-left:20px;font-size:16px;line-height:1.7">' +

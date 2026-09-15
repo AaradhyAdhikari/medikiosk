@@ -1036,9 +1036,16 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior, la
       ' "personal": string covering diet, sleep, activity and habits as far as stated, "ros": string,\n' +
       ' "redFlags": array of short strings, empty if none,\n' +
       ' "triage": one of "ROUTINE", "PRIORITY", "URGENT",\n' +
-      ' "assessment": 3-4 sentences on what this pattern suggests and what would change the picture, explicitly provisional,\n' +
-      ' "differentials": array of up to 4 {"condition": string, "why": one short line of evidence from THIS history},\n' +
-      ' "investigations": array of up to 5 short strings — examinations or tests worth considering,\n' +
+      ' "assessment": REQUIRED, never empty. 3-4 sentences on what this pattern suggests and what would\n' +
+      '   change the picture, explicitly provisional. If the presentation is mild and unremarkable, say so\n' +
+      '   plainly and say what would make you revisit it — do not pad it, and do not manufacture concern.\n' +
+      '   The clinician reads this on every patient, so silence here would read as reassurance,\n' +
+      ' "differentials": array of up to 4 {"condition": string, "why": one short line of evidence from THIS history}.\n' +
+      '   Fit them to the actual complaint. An empty array is correct for a presentation that does not warrant\n' +
+      '   a differential; inventing plausible-sounding conditions to fill space is worse than returning none,\n' +
+      ' "investigations": array of up to 5 short strings — examinations or tests worth considering, chosen for\n' +
+      '   THIS complaint rather than a generic panel. Return an empty array rather than routine screening that\n' +
+      '   this history does not call for; over-investigation has its own cost to the patient,\n' +
       DEPARTMENT_SPEC(system) +
       AYURVEDA_SPEC[system] +
       CODING_SPEC[system] +
@@ -1047,7 +1054,21 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior, la
       ' "suggestedQuestions": array of up to 4 short follow-up questions,\n' +
       ' "changeSinceLastVisit": string if this is a follow-up, else null}',
   }]);
-  return parseJson(text);
+  const out = parseJson(text);
+
+  /* The console shows this block on every patient, so an empty assessment
+     would present as "nothing to flag" when what actually happened is that
+     the model returned nothing. Those two are not the same thing and a
+     clinician must not have to tell them apart. Say which it was. */
+  if (!String(out.assessment || "").trim()) {
+    out.assessment =
+      "The model returned no assessment for this intake. That is a gap in the tooling, " +
+      "not a finding — read the history above on its own terms.";
+  }
+  if (!Array.isArray(out.differentials)) out.differentials = [];
+  if (!Array.isArray(out.investigations)) out.investigations = [];
+
+  return out;
 }
 
 function offlineSummary({ answers, documents, system }) {
@@ -1604,6 +1625,46 @@ async function api(req, res, pathname) {
       visits,
       documents,
     });
+  }
+
+  // ---- patient: raise (or withdraw) an emergency on a visit already underway
+  //
+  // The kiosk's emergency button used to pop a browser alert saying staff had
+  // been called, while sending nothing anywhere at all. A patient in trouble
+  // was told help was coming and no one was told. This is what makes that
+  // sentence true: the visit is flagged, re-tokened to the P- series, and
+  // surfaces on every clinician's queue behind the emergency banner.
+  //
+  // It can also be withdrawn, because a kiosk is a shared screen and a
+  // mis-tap must be recoverable — a flag nobody can clear is a flag
+  // clinicians quickly learn to ignore.
+  if (/^\/api\/visits\/[^/]+\/emergency$/.test(pathname) && method === "POST") {
+    const s = patientOf(req);
+    if (!s) return bad(res, 401, "Verify your phone number first.");
+    const vid = pathname.split("/")[3];
+    const visit = store.visits.find((v) => v.id === vid);
+    if (!visit) return bad(res, 404, "That visit no longer exists.");
+    if (visit.patientId !== s.pid) return bad(res, 403, "That is not your visit.");
+
+    const { on = true } = await readBody(req);
+    const raise = on !== false;
+
+    visit.redFlag = raise;
+    visit.triage = raise ? "URGENT" : "ROUTINE";
+    // Keep the number, switch the series, so the desk and the slip still agree.
+    const tail = String(visit.token).split("-")[1] || String(10 + Math.floor(Math.random() * 89));
+    visit.token = (raise ? "P-" : "A-") + tail;
+    if (visit.summary) {
+      visit.summary.triage = raise ? "URGENT" : (visit.summary.triage || "ROUTINE");
+      if (raise) {
+        const flags = Array.isArray(visit.summary.redFlags) ? visit.summary.redFlags : [];
+        const line = "Patient pressed the emergency button at the kiosk.";
+        if (!flags.includes(line)) visit.summary.redFlags = flags.concat([line]);
+      }
+    }
+    save();
+    logEvent(raise ? "emergency_raised" : "emergency_withdrawn", { visitId: visit.id });
+    return ok(res, { ok: true, visit: { id: visit.id, token: visit.token, redFlag: visit.redFlag } });
   }
 
   // ---- patient: start a visit

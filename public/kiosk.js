@@ -3,6 +3,7 @@
 
 var S = {
   lang: "hi", screen: "lang", phone: "", otp: "", otpUntil: 0, devCode: "", live: false,
+  emergencyRaised: false, redBack: null,
   method: null,           // "phone" | "abha" | "aadhaar"
   abhaInput: "", aadhaarInput: "",
   name: "", ageYears: "", sex: "", heightCm: "", weightKg: "",
@@ -264,8 +265,39 @@ document.getElementById("btn-lang").onclick = function () {
   setLangPill();
   render();
 };
-document.getElementById("btn-help").onclick = function () {
-  alert(L("सहायता के लिए कर्मचारी को बुलाया गया है।", "A staff member has been called to help you."));
+/* The emergency button, reachable from every screen — the language chooser,
+   the login, and every question in the interview.
+
+   It used to pop a browser alert that said staff had been called while
+   sending nothing anywhere. One press now actually raises the flag: the
+   patient goes straight to the priority screen and the case surfaces on the
+   clinicians' queue under the emergency banner. One press, not two — a
+   confirmation dialog in front of an emergency button is a delay you cannot
+   justify. The mis-tap is handled on the other side, where the screen offers
+   a way back that also clears the flag. */
+document.getElementById("btn-help").onclick = async function () {
+  if (S.busy) return;
+  if (S.screen === "red") return;            // already there
+  S.redBack = S.screen;                      // so a mis-tap can come back here
+  S.busy = true;
+  try {
+    if (S.visit && S.visit.id) {
+      var r = await api("/api/visits/" + S.visit.id + "/emergency", { on: true });
+      if (r && r.visit) S.visit.token = r.visit.token;
+      S.emergencyRaised = true;
+      S.busy = false;
+      return go("red");
+    }
+    // No visit yet (still choosing a language, or mid-login). Escalating
+    // needs an identified patient, so send them to the desk in plain words
+    // rather than pretending a signal went somewhere.
+    S.busy = false;
+    S.emergencyRaised = false;
+    go("red");
+  } catch (e) {
+    S.busy = false; S.emergencyRaised = false;
+    go("red");
+  }
 };
 document.getElementById("btn-home").onclick = function () { location.href = "/"; };
 document.getElementById("btn-a11y").onclick = function () { S.beforeA11y = S.screen; go("a11y"); };
@@ -1386,23 +1418,57 @@ function scQuestion() {
 }
 
 function scRed() {
+  /* Whether a flag actually reached the clinicians depends on there being a
+     visit to attach it to. Saying "staff have been alerted" when nothing was
+     sent is the exact failure this screen is here to prevent, so the wording
+     follows the truth rather than the other way round. */
+  var flagged = !!(S.visit && S.visit.id);
+
   body.innerHTML = '<div class="alert">' +
     '<span class="eyebrow" style="color:var(--vermilion)">' + L("तुरंत ध्यान दें","Priority") + "</span>" +
     "<h2>" + L("कृपया अभी स्टाफ़ को बताइए", "Please tell the staff now") + "</h2>" +
     '<p style="font-size:17px;line-height:1.5;margin:0 0 12px">' +
-      L("आपने जो बताया है वह तुरंत देखा जाना चाहिए। कर्मचारी को सूचना भेज दी गई है — कृपया यहीं रुकिए।",
-        "What you described needs to be seen right away. Triage staff have been alerted — please stay here, someone is coming to you.") + "</p>" +
-    '<div style="background:#fff;border-radius:12px;padding:12px 14px">' +
-      '<div style="font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--muted)">' + L("प्राथमिकता टोकन","PRIORITY TOKEN") + "</div>" +
-      '<div class="mono" style="font-size:42px;font-weight:600;color:var(--vermilion)">' + esc((S.visit && S.visit.token) || "P-01") + "</div></div></div>" +
-    '<p class="lede" style="margin-top:18px">' + L("आप बाक़ी जानकारी बाद में भी भर सकते हैं।",
-      "You can finish the rest of your history later. The doctor already has this alert.") + "</p>";
-  foot.innerHTML = '<button class="btn haldi" id="cont">' + L("बाक़ी जानकारी भरें","Continue with my history") + "</button>" +
-    '<button class="btn ghost" id="fin">' + L("अभी रुकें","Wait for staff") + "</button>";
-  document.getElementById("cont").onclick = function () {
+      (flagged
+        ? L("आपका मामला तुरंत देखे जाने के लिए चिह्नित कर दिया गया है और डॉक्टर की सूची में सबसे ऊपर दिख रहा है। कृपया यहीं रुकिए।",
+            "Your case is now marked for immediate attention and is at the top of the clinicians' list. Please stay here.")
+        : L("कृपया सीधे काउंटर पर जाइए और स्टाफ़ को बताइए। अभी आपकी पहचान दर्ज नहीं हुई है, इसलिए कोई सूचना नहीं भेजी जा सकी।",
+            "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.")) + "</p>" +
+    (flagged
+      ? '<div style="background:#fff;border-radius:12px;padding:12px 14px">' +
+          '<div style="font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--muted)">' + L("प्राथमिकता टोकन","PRIORITY TOKEN") + "</div>" +
+          '<div class="mono" style="font-size:42px;font-weight:600;color:var(--vermilion)">' + esc(S.visit.token) + "</div></div>"
+      : "") +
+    "</div>" +
+    (flagged
+      ? '<p class="lede" style="margin-top:18px">' + L("आप बाक़ी जानकारी बाद में भी भर सकते हैं।",
+          "You can finish the rest of your history later. The doctor already has this alert.") + "</p>"
+      : "");
+
+  foot.innerHTML =
+    (flagged
+      ? '<button class="btn haldi" id="cont">' + L("बाक़ी जानकारी भरें","Continue with my history") + "</button>" +
+        '<button class="btn ghost" id="fin">' + L("अभी रुकें","Wait for staff") + "</button>"
+      : "") +
+    /* A shared screen gets mis-tapped. A flag nobody can withdraw is a flag
+       clinicians learn to ignore, which costs the next real emergency. */
+    '<button class="btn ghost" id="undo" style="font-size:15px">' +
+      L("मैंने ग़लती से दबा दिया", "I pressed this by mistake") + "</button>";
+
+  var cont = document.getElementById("cont");
+  if (cont) cont.onclick = function () {
     var qs = questions(); S.step = Math.min(S.step + 1, qs.length - 1); go("q");
   };
-  document.getElementById("fin").onclick = submitInterview;
+  var fin = document.getElementById("fin");
+  if (fin) fin.onclick = submitInterview;
+
+  document.getElementById("undo").onclick = async function () {
+    if (flagged && S.emergencyRaised) {
+      try { await api("/api/visits/" + S.visit.id + "/emergency", { on: false }); } catch (e) {}
+    }
+    S.emergencyRaised = false;
+    go(S.redBack || (S.visit ? "q" : "lang"));
+  };
+
   speak(L("कृपया अभी स्टाफ़ को बताइए।", "Please tell the staff now."));
 }
 
