@@ -28,11 +28,13 @@ window.CLINICAL = [
       { ic: "skin", hi: "त्वचा की समस्या", en: "Skin problem" },
     ] },
 
+  /* Asked of every complaint, so the wording cannot assume the complaint is
+     pain — "where does it hurt" is the wrong question for a rash. */
   { id: "site", kind: "bodymap", section: "complaint",
-    hi: "कहाँ दर्द होता है? छूकर दिखाइए", en: "Where does it hurt? Touch to show us" },
+    hi: "तकलीफ़ कहाँ है? छूकर दिखाइए", en: "Where is the problem? Touch to show us" },
 
   { id: "severity", kind: "faces", section: "complaint",
-    hi: "दर्द कितना है?", en: "How bad is the pain?" },
+    hi: "कितनी तकलीफ़ हो रही है?", en: "How much is it troubling you?" },
 
   { id: "duration", kind: "chips", section: "complaint",
     hi: "कब से है?", en: "How long has this been going on?",
@@ -319,8 +321,278 @@ window.systemMeta = function (id) {
 window.wantsAyurveda = function (system) { return system !== "ALLOPATHIC"; };
 
 // The full first-visit interview, in order, for the chosen system of medicine.
-window.firstVisitQuestions = function (system) {
-  var qs = window.CLINICAL.slice();
+/* ──────────────────── complaint-driven branching ────────────────────
+ * The bank above was written around a PAIN complaint and used to be served
+ * whole to every patient. Someone coming in with acne was asked what the pain
+ * felt like ("burning / stabbing / throbbing") and whether it got worse
+ * climbing stairs. That is not a cosmetic problem: irrelevant questions cost
+ * an OPD patient their patience and teach them the machine is not listening,
+ * and the answers they give to get past it are noise in the doctor's summary.
+ *
+ * SIH26047 Module A asks for questioning that "dynamically branches based on
+ * chief complaint and prior answers, mirroring a physician's clinical
+ * reasoning". This is the first cut of that: classify the complaint, then ask
+ * what a clinician would actually ask about it.
+ *
+ * Keywords are matched on the complaint text the patient typed or spoke. They
+ * are deliberately generous — a false match into the wrong category costs a
+ * few odd questions, while a miss drops the patient back to the generic set,
+ * which is safe but shallow. When the AI summary is on it can still overrule
+ * the categorisation downstream; this decides only what gets ASKED.
+ *
+ * NOT CLINICALLY REVIEWED. These sets are drafted from standard history-taking
+ * structure, not validated by a physician. They need a vaidya's eye before
+ * this is used on real patients — same standing caveat as the translations.
+ */
+
+window.COMPLAINT_CATEGORIES = [
+  { id: "skin", keywords: [
+      "acne", "pimple", "rash", "itch", "itching", "skin", "eczema", "boil", "hives",
+      "psoriasis", "fungal", "ringworm", "hair fall", "hairfall", "dandruff", "patch",
+      "मुँहासे", "मुहासे", "दाने", "खुजली", "त्वचा", "चर्म", "फुंसी", "चकत्ते", "बाल झड़",
+    ] },
+  { id: "resp", keywords: [
+      "cough", "cold", "breath", "breathless", "breathing", "wheez", "asthma", "chest congestion",
+      "sputum", "phlegm", "sneez", "throat",
+      "खांसी", "खाँसी", "सर्दी", "जुकाम", "ज़ुकाम", "साँस", "सांस", "दमा", "बलगम", "छींक",
+    ] },
+  { id: "gi", keywords: [
+      "stomach", "abdomen", "belly", "acidity", "gas", "vomit", "nausea", "loose motion",
+      "diarrh", "constipat", "indigestion", "appetite", "ulcer", "piles", "bloat",
+      "पेट", "गैस", "अम्ल", "उल्टी", "जी मिचला", "दस्त", "कब्ज", "बदहजमी", "भूख", "बवासीर",
+    ] },
+  { id: "fever", keywords: [
+      "fever", "temperature", "chills", "shivering", "malaria", "typhoid", "viral",
+      "बुख़ार", "बुखार", "ज्वर", "ठंड लग", "कंपकंपी",
+    ] },
+  { id: "cardiac", keywords: [
+      "chest pain", "chest tight", "heart", "palpitation", "heart beat", "heartbeat",
+      "सीने में दर्द", "छाती में दर्द", "दिल", "धड़कन", "जकड़न",
+    ] },
+  { id: "neuro", keywords: [
+      "headache", "head ache", "migraine", "dizzy", "giddy", "vertigo", "faint", "numb",
+      "tingling", "weakness one side", "fits", "seizure", "memory",
+      "सिर दर्द", "सिरदर्द", "माइग्रेन", "चक्कर", "बेहोश", "सुन्न", "झुनझुनी", "दौरा", "मिर्गी",
+    ] },
+  { id: "pain", keywords: [
+      "pain", "ache", "joint", "knee", "back", "shoulder", "neck", "swelling", "stiff",
+      "arthritis", "sprain", "muscle", "cramp", "हड्डी",
+      "दर्द", "जोड़", "घुटन", "घुटने", "कमर", "पीठ", "कंधा", "गर्दन", "सूजन", "अकड़", "गठिया", "मांसपेशी",
+    ] },
+];
+
+/* Longest keyword wins, so "chest pain" beats a bare "pain" and lands in
+   cardiac rather than musculoskeletal. Ties go to whichever scores more hits. */
+window.classifyComplaint = function (text) {
+  var t = String(text || "").toLowerCase();
+  if (!t.trim()) return null;
+  var best = null, bestScore = 0;
+  for (var i = 0; i < window.COMPLAINT_CATEGORIES.length; i++) {
+    var c = window.COMPLAINT_CATEGORIES[i], score = 0;
+    for (var k = 0; k < c.keywords.length; k++) {
+      var kw = c.keywords[k].toLowerCase();
+      if (t.indexOf(kw) > -1) score += kw.length;   // specificity, not count
+    }
+    if (score > bestScore) { bestScore = score; best = c.id; }
+  }
+  return best;
+};
+
+/* Asked only of complaints where pain is the thing being described. */
+window.PAIN_QUESTIONS = ["character", "aggravating"];
+
+window.CATEGORY_QUESTIONS = {
+  skin: [
+    { id: "sk_itch", kind: "chips", section: "complaint",
+      hi: "क्या उसमें खुजली होती है?", en: "Does it itch?",
+      chips: [
+        { ic: "cross", hi: "नहीं", en: "No" },
+        { ic: "faded", hi: "थोड़ी-बहुत", en: "A little" },
+        { ic: "flame", hi: "बहुत ज़्यादा", en: "A lot" },
+        { ic: "sun", hi: "जलन होती है", en: "It burns rather than itches" },
+      ] },
+    { id: "sk_look", kind: "multi", section: "complaint",
+      hi: "त्वचा कैसी दिख रही है?", en: "What does the skin look like?",
+      chips: [
+        { ic: "skin", hi: "लाल चकत्ते", en: "Red patches" },
+        { ic: "dust", hi: "उभरे हुए दाने", en: "Raised bumps" },
+        { ic: "egg", hi: "पस या पानी भरा", en: "Pus or fluid filled" },
+        { ic: "snow", hi: "सूखी, पपड़ीदार", en: "Dry and flaking" },
+        { ic: "spiral", hi: "गोल चकत्ता", en: "Ring-shaped patch" },
+        { ic: "faded", hi: "रंग गहरा/हल्का पड़ा", en: "Skin colour changed" },
+      ] },
+    { id: "sk_spread", kind: "chips", section: "complaint",
+      hi: "क्या यह फैल रहा है?", en: "Is it spreading?",
+      chips: [
+        { ic: "ban", hi: "एक ही जगह है", en: "Staying in one place" },
+        { ic: "arrow", hi: "फैल रहा है", en: "Spreading" },
+        { ic: "restart", hi: "आता-जाता रहता है", en: "Comes and goes" },
+      ] },
+    { id: "sk_trigger", kind: "multi", section: "complaint",
+      hi: "इससे पहले कुछ नया किया या लगाया?", en: "Did anything set it off?",
+      chips: [
+        { ic: "dust", hi: "नया साबुन या क्रीम", en: "New soap or cosmetic" },
+        { ic: "plate", hi: "कोई खाना", en: "A particular food" },
+        { ic: "pill", hi: "कोई दवा", en: "A medicine" },
+        { ic: "sun", hi: "धूप", en: "Sun exposure" },
+        { ic: "exercise", hi: "पसीना", en: "Sweating" },
+        { ic: "faded", hi: "कुछ ख़ास नहीं", en: "Nothing that I noticed", solo: true },
+      ] },
+  ],
+
+  resp: [
+    { id: "rs_cough", kind: "chips", section: "complaint",
+      hi: "खांसी कैसी है?", en: "What is the cough like?",
+      chips: [
+        { ic: "cross", hi: "खांसी नहीं है", en: "No cough" },
+        { ic: "dust", hi: "सूखी खांसी", en: "Dry cough" },
+        { ic: "lungs", hi: "बलगम के साथ", en: "With phlegm" },
+        { ic: "blood", hi: "खांसी में खून", en: "Blood in the cough" },
+      ] },
+    { id: "rs_breath", kind: "chips", section: "complaint",
+      hi: "साँस फूलती है?", en: "Do you get short of breath?",
+      chips: [
+        { ic: "cross", hi: "नहीं", en: "No" },
+        { ic: "walk", hi: "चलने या काम करने पर", en: "On walking or exertion" },
+        { ic: "seated", hi: "आराम करते हुए भी", en: "Even at rest" },
+        { ic: "sleep", hi: "रात में लेटने पर", en: "At night when lying down" },
+      ] },
+    { id: "rs_assoc", kind: "multi", section: "complaint",
+      hi: "साथ में और क्या है?", en: "What else is there along with it?",
+      chips: [
+        { ic: "lungs", hi: "सीने में घरघराहट", en: "Wheezing" },
+        { ic: "chest", hi: "सीने में जकड़न", en: "Chest tightness" },
+        { ic: "fever", hi: "बुख़ार", en: "Fever" },
+        { ic: "head", hi: "गला ख़राब", en: "Sore throat" },
+        { ic: "faded", hi: "और कुछ नहीं", en: "Nothing else", solo: true },
+      ] },
+  ],
+
+  gi: [
+    { id: "gi_food", kind: "chips", section: "complaint",
+      hi: "खाने से कोई संबंध है?", en: "Is it related to food?",
+      chips: [
+        { ic: "hourglass", hi: "खाली पेट बढ़ता है", en: "Worse on an empty stomach" },
+        { ic: "plate", hi: "खाने के बाद बढ़ता है", en: "Worse after eating" },
+        { ic: "faded", hi: "कोई संबंध नहीं", en: "No relation to food" },
+      ] },
+    { id: "gi_bowel", kind: "multi", section: "complaint",
+      hi: "शौच में कोई बदलाव?", en: "Any change in your bowels?",
+      chips: [
+        { ic: "spiral", hi: "दस्त / पतला", en: "Loose motions" },
+        { ic: "ban", hi: "कब्ज़", en: "Constipation" },
+        { ic: "blood", hi: "खून आना", en: "Blood" },
+        { ic: "check", hi: "सब सामान्य है", en: "Normal", solo: true },
+      ] },
+    { id: "gi_assoc", kind: "multi", section: "complaint",
+      hi: "साथ में और क्या है?", en: "What else is there along with it?",
+      chips: [
+        { ic: "spiral", hi: "जी मिचलाना", en: "Nausea" },
+        { ic: "restart", hi: "उल्टी", en: "Vomiting" },
+        { ic: "flame", hi: "सीने में जलन", en: "Burning in the chest" },
+        { ic: "weight", hi: "पेट फूलना", en: "Bloating" },
+        { ic: "faded", hi: "और कुछ नहीं", en: "Nothing else", solo: true },
+      ] },
+  ],
+
+  fever: [
+    { id: "fv_pattern", kind: "chips", section: "complaint",
+      hi: "बुख़ार कैसा रहता है?", en: "What is the fever like?",
+      chips: [
+        { ic: "clock", hi: "लगातार रहता है", en: "There all the time" },
+        { ic: "restart", hi: "आता-जाता है", en: "Comes and goes" },
+        { ic: "snow", hi: "ठंड लगकर आता है", en: "Comes with chills" },
+        { ic: "sleep", hi: "सिर्फ़ रात में", en: "Mostly at night" },
+      ] },
+    { id: "fv_assoc", kind: "multi", section: "complaint",
+      hi: "बुख़ार के साथ और क्या है?", en: "What else is there with the fever?",
+      chips: [
+        { ic: "bone", hi: "बदन दर्द", en: "Body ache" },
+        { ic: "head", hi: "सिर दर्द", en: "Headache" },
+        { ic: "lungs", hi: "खांसी", en: "Cough" },
+        { ic: "restart", hi: "उल्टी / दस्त", en: "Vomiting or loose motions" },
+        { ic: "skin", hi: "शरीर पर दाने", en: "Rash" },
+        { ic: "faded", hi: "और कुछ नहीं", en: "Nothing else", solo: true },
+      ] },
+  ],
+
+  cardiac: [
+    { id: "cd_radiate", kind: "multi", section: "complaint",
+      hi: "दर्द कहीं और फैलता है?", en: "Does it spread anywhere?",
+      chips: [
+        { ic: "arrow", hi: "बाएँ हाथ में", en: "Into the left arm" },
+        { ic: "head", hi: "जबड़े या गर्दन में", en: "Into the jaw or neck" },
+        { ic: "bone", hi: "पीठ में", en: "Into the back" },
+        { ic: "faded", hi: "कहीं नहीं", en: "It stays in one place", solo: true },
+      ] },
+    { id: "cd_assoc", kind: "multi", section: "complaint",
+      hi: "साथ में और क्या हुआ?", en: "What else happened with it?",
+      chips: [
+        { ic: "sun", hi: "पसीना छूटा", en: "Sweating" },
+        { ic: "lungs", hi: "साँस फूली", en: "Breathlessness" },
+        { ic: "pulse", hi: "धड़कन तेज़ हुई", en: "Racing heartbeat" },
+        { ic: "spiral", hi: "जी मिचलाया", en: "Nausea" },
+        { ic: "faded", hi: "और कुछ नहीं", en: "Nothing else", solo: true },
+      ] },
+  ],
+
+  neuro: [
+    { id: "nr_char", kind: "chips", section: "complaint",
+      hi: "सिर दर्द कैसा है?", en: "What is the headache like?",
+      chips: [
+        { ic: "pulse", hi: "धड़कने जैसा", en: "Throbbing" },
+        { ic: "weight", hi: "कसा हुआ, पट्टी जैसा", en: "Tight band around the head" },
+        { ic: "blade", hi: "एक तरफ़", en: "One side only" },
+        { ic: "zoom", hi: "आँखों के पीछे", en: "Behind the eyes" },
+      ] },
+    { id: "nr_assoc", kind: "multi", section: "complaint",
+      hi: "साथ में और क्या है?", en: "What else is there along with it?",
+      chips: [
+        { ic: "restart", hi: "उल्टी", en: "Vomiting" },
+        { ic: "sun", hi: "रोशनी चुभती है", en: "Light hurts the eyes" },
+        { ic: "zoom", hi: "धुंधला दिखना", en: "Blurred vision" },
+        { ic: "hand", hi: "हाथ-पैर में कमज़ोरी", en: "Weakness in an arm or leg" },
+        { ic: "faded", hi: "और कुछ नहीं", en: "Nothing else", solo: true },
+      ] },
+  ],
+};
+
+/* Nothing matched. Ask the two questions that are useful for any complaint
+   rather than guessing at a body system. */
+window.GENERIC_QUESTIONS = [
+  { id: "gn_worse", kind: "open", section: "complaint",
+    hi: "किस से बढ़ती है?", en: "What makes it worse?",
+    phHi: "बोलिए या लिखिए", phEn: "Speak or type" },
+  { id: "gn_better", kind: "open", section: "complaint",
+    hi: "किस से आराम मिलता है?", en: "What makes it better?",
+    phHi: "बोलिए या लिखिए", phEn: "Speak or type" },
+];
+
+window.firstVisitQuestions = function (system, complaintText) {
+  var cat = window.classifyComplaint(complaintText);
+
+  /* Pain and chest pain ARE pain, so they keep "what does it feel like" and
+     "what makes it worse". Everything else does not, which is where this
+     started: an acne patient being asked about climbing stairs. */
+  var painish = (cat === "pain" || cat === "cardiac");
+
+  /* A matched category brings its own block. An unmatched complaint gets two
+     neutral questions rather than a guess at a body system. "pain" has no
+     block of its own because character + aggravating already cover it. */
+  var extra = (cat && window.CATEGORY_QUESTIONS[cat]) || (cat ? [] : window.GENERIC_QUESTIONS);
+
+  /* Characterise the complaint before asking where it spreads — the category
+     block therefore lands after the pain questions when those are asked. */
+  var insertAfter = painish ? "aggravating" : "duration";
+
+  var qs = [];
+  for (var i = 0; i < window.CLINICAL.length; i++) {
+    var q = window.CLINICAL[i];
+    if (window.PAIN_QUESTIONS.indexOf(q.id) > -1 && !painish) continue;
+    qs.push(q);
+    if (q.id === insertAfter) qs = qs.concat(extra);
+  }
+
   if (window.wantsAyurveda(system)) {
     qs = qs.concat(window.DASHAVIDHA).concat(window.AGNI_KOSHTHA).concat(window.AHARA_VIHARA);
   }

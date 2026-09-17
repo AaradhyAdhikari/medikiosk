@@ -94,9 +94,24 @@ function esc(s) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
   });
 }
+/* The list is rebuilt from the chief complaint every time it is asked for, so
+   answering "acne" at question one changes what question four will be. The
+   complaint stays at index 0 whatever happens, which is what keeps S.step
+   meaningful while the tail of the list changes underneath it. */
+function complaintText() {
+  var a = S.answers["complaint"];
+  var main = Array.isArray(a) ? a.join(" ") : (a || "");
+  return (main + " " + (S.answers["_other_complaint"] || "")).trim();
+}
+
 function questions() {
   if (S.visit && S.visit.visitType === "FOLLOW_UP") return window.FOLLOW_UP;
-  return window.firstVisitQuestions((S.visit && S.visit.system) || S.system);
+  var qs = window.firstVisitQuestions((S.visit && S.visit.system) || S.system, complaintText());
+  /* A patient who goes back and changes their complaint can shorten the list
+     from under the cursor. Without this the interview walks off the end and
+     renders undefined. */
+  if (S.step > qs.length - 1) S.step = Math.max(0, qs.length - 1);
+  return qs;
 }
 
 /* ── document timeline ──────────────────────────────

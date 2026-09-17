@@ -47,8 +47,22 @@ function loadEnv() {
 loadEnv();
 
 const PORT = Number(process.env.PORT || 3000);
-const AI_KEY = process.env.ANTHROPIC_API_KEY || "";
-const AI_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+/* Which model service writes the summary and reads the scanned documents.
+   Same shape as SMS_PROVIDER below: one switch, several back ends, and the
+   app degrades to its offline path rather than breaking if none is set.
+   Provider is inferred from whichever key is present, so setting a single
+   key in .env is enough; AI_PROVIDER only matters if you set both. */
+const AI_PROVIDER = String(
+  process.env.AI_PROVIDER ||
+  (process.env.MISTRAL_API_KEY ? "mistral" : "anthropic")
+).toLowerCase();
+const AI_KEY =
+  AI_PROVIDER === "mistral" ? (process.env.MISTRAL_API_KEY || "")
+                            : (process.env.ANTHROPIC_API_KEY || "");
+const AI_MODEL =
+  process.env.AI_MODEL ||
+  process.env.ANTHROPIC_MODEL ||                 // kept working for older .env files
+  (AI_PROVIDER === "mistral" ? "mistral-large-latest" : "claude-sonnet-4-5");
 const HOSPITAL = process.env.HOSPITAL_NAME || "All India Institute of Ayurveda";
 /* The address a phone at the check-in desk can actually reach. The token QR
    has to carry an absolute URL, and `localhost:3000` — which is what the
@@ -862,7 +876,48 @@ function reconcileDepartment(modelDept, ruleDept, system) {
 
 const aiOn = () => Boolean(AI_KEY);
 
-async function askClaude(content, maxTokens) {
+/* Callers build content in Anthropic's block shape — [{type:"text"...},
+   {type:"image", source:{type:"base64", media_type, data}}]. That stays the
+   internal format and each provider translates on the way out, so the two
+   call sites never learn which service is answering. */
+function toMistralContent(blocks) {
+  return (blocks || []).map(function (b) {
+    if (b && b.type === "image" && b.source && b.source.type === "base64") {
+      // Mistral takes the image as a data URL under image_url, not a source object.
+      return { type: "image_url", image_url: "data:" + b.source.media_type + ";base64," + b.source.data };
+    }
+    return b;                                    // text blocks are identical in both
+  });
+}
+
+async function askAI(content, maxTokens) {
+  if (AI_PROVIDER === "mistral") {
+    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + AI_KEY,
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: maxTokens || 3000,
+        messages: [{ role: "user", content: toMistralContent(content) }],
+      }),
+    });
+    if (!res.ok) throw new Error("Mistral API " + res.status + " " + (await res.text()).slice(0, 200));
+    const j = await res.json();
+    const msg = j && j.choices && j.choices[0] && j.choices[0].message;
+    const text = msg && msg.content;
+    // Some responses come back as an array of parts rather than a plain string.
+    if (Array.isArray(text)) {
+      return text.map(function (p) { return typeof p === "string" ? p : (p && p.text) || ""; }).join("\n");
+    }
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("Mistral API returned no text");
+    }
+    return text;
+  }
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -893,7 +948,7 @@ function parseJson(text) {
 async function readDocumentAI(dataUrl) {
   const m = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(dataUrl || "");
   if (!m) throw new Error("Expected a base64 image data URL");
-  const text = await askClaude([
+  const text = await askAI([
     { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } },
     {
       type: "text",
@@ -1007,7 +1062,7 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior, la
     ? `\n\nPREVIOUS VISIT (${new Date(prior.assessedAt || prior.startedAt).toDateString()}):\nDiagnosis: ${prior.diagnosis || "not recorded"}\nPrescription: ${prior.prescription || "not recorded"}\n`
     : "";
 
-  const text = await askClaude([{
+  const text = await askAI([{
     type: "text",
     text:
       "You are a clinical documentation assistant preparing an OPD history for a physician at an Ayurveda " +
@@ -2285,7 +2340,7 @@ async function api(req, res, pathname) {
     } else {
       console.log(`\n   Clinicians registered: ${store.clinicians.length}`);
     }
-    console.log(`\n   AI:        ${aiOn() ? "on (" + AI_MODEL + ")" : "off — add ANTHROPIC_API_KEY to .env"}`);
+    console.log(`\n   AI:        ${aiOn() ? "on · " + AI_PROVIDER + " · " + AI_MODEL : "off — set MISTRAL_API_KEY or ANTHROPIC_API_KEY in .env"}`);
     console.log(`   SMS:       ${smsProvider() === "console" ? "console (codes print here)" : smsProvider()}`);
     console.log(`   Languages: ${routed.langs + 2} translated · ${routed.added} routing keywords derived`);
     console.log("   Data:      ./data/db.json   (delete the data folder to start over)");
