@@ -19,10 +19,18 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
-const DATA = path.join(ROOT, "data");
+/* Most serverless hosts mount the deployment read-only and give you only
+   /tmp, which does not survive between invocations. Writing the store beside
+   the code is right on a normal server and impossible there, so the path moves
+   and Firebase becomes the source of truth rather than a mirror of it. */
+const SERVERLESS = Boolean(
+  process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.FUNCTIONS_WORKER_RUNTIME
+);
+const DATA = SERVERLESS ? path.join(os.tmpdir(), "medikiosk") : path.join(ROOT, "data");
 const UPLOADS = path.join(DATA, "uploads");
 const DB_FILE = path.join(DATA, "db.json");
 
@@ -133,7 +141,13 @@ try {
 }
 
 async function loadStore() {
-  fs.mkdirSync(UPLOADS, { recursive: true });
+  try {
+    fs.mkdirSync(UPLOADS, { recursive: true });
+  } catch (e) {
+    // Read-only deployment. Firebase carries the data; local files are a cache.
+    if (!SERVERLESS) throw e;
+    console.warn("  local storage unavailable (read-only) — relying on Firebase");
+  }
 
   if (firebaseDb) {
     try {
@@ -165,21 +179,36 @@ async function loadStore() {
 }
 
 let saveTimer = null;
-function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    if (firebaseDb) firebaseDb.ref('/').set(store).catch(e => console.error("Firebase save error:", e.message));
+
+/* The local file is a convenience on a normal server and a doomed cache on a
+   serverless one, so a failure to write it must not take the request down. */
+function writeLocal() {
+  try {
     const tmp = DB_FILE + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
     fs.renameSync(tmp, DB_FILE);
-  }, 500);
+  } catch (e) {
+    if (!SERVERLESS) throw e;
+  }
 }
+
+function persist() {
+  if (firebaseDb) firebaseDb.ref('/').set(store).catch(e => console.error("Firebase save error:", e.message));
+  writeLocal();
+}
+
+function save() {
+  /* A serverless function is frozen the moment it answers, so a write parked
+     behind a 500ms timer is a write that silently never happens. Debouncing is
+     only safe where the process outlives the response. */
+  if (SERVERLESS) return persist();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persist, 500);
+}
+
 function saveNow() {
   clearTimeout(saveTimer);
-  if (firebaseDb) firebaseDb.ref('/').set(store).catch(e => console.error("Firebase saveNow error:", e.message));
-  const tmp = DB_FILE + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
-  fs.renameSync(tmp, DB_FILE);
+  persist();
 }
 
 const id = () => crypto.randomUUID();
