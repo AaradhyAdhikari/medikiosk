@@ -320,7 +320,11 @@ document.getElementById("btn-a11y").onclick = function () { S.beforeA11y = S.scr
 /* Their own record, one tap from anywhere, once they are signed in. */
 document.getElementById("btn-records").onclick = function () { openDashboard(); };
 
-function go(s) { S.screen = s; stopListen(); render(); }
+/* An error belongs to the screen that produced it. Carrying it across a screen
+   change is how a patient ended up reading "that code has expired" on the page
+   that asks for their name. keepError is for the one caller that navigates in
+   order to show the error somewhere else. */
+function go(s, keepError) { if (!keepError) S.error = ""; S.screen = s; stopListen(); render(); }
 
 /* ── spoken navigation commands ──────────────────────
    The PS asks for voice throughout, not only for answers. These work on every
@@ -783,7 +787,7 @@ async function openDashboard() {
     S.knownName = (S.records.patient && S.records.patient.name) || S.knownName;
     S.busy = false; go("dash");
   } catch (e) {
-    S.error = e.message; S.busy = false; go("identify");
+    S.error = e.message; S.busy = false; go("identify", true);
   }
 }
 
@@ -921,6 +925,17 @@ var HEART = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5
 
 var otpTimer = null;
 
+/* The auto-verify countdown lives out here, beside the resend ticker, for one
+   reason: a timer that only the screen that armed it can cancel is a timer that
+   fires after the screen is gone. That is exactly what happened — six digits
+   armed a 550ms verify, the patient tapped Verify inside those 550ms, the tap
+   verified them and moved them on, and then the orphaned timer verified the
+   same code a second time. The server had already spent it, so it answered
+   "that code has expired" about a code that was four seconds old and correct.
+   Hoisting it means submit() and leave() can both put it out. */
+var otpAutoT = null;
+function stopOtpAuto() { if (otpAutoT) { clearTimeout(otpAutoT); otpAutoT = null; } }
+
 function brand() {
   return '<div class="brand">' + HEART + "<span>MediKiosk</span></div>";
 }
@@ -995,8 +1010,8 @@ function scPhone() {
 
 function scOtp() {
   if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+  stopOtpAuto();
   if (!S.otpUntil) S.otpUntil = Date.now() + 20000;
-  var autoT = null;
 
   body.innerHTML =
     '<div class="login"><div class="top">' + brand() +
@@ -1025,7 +1040,10 @@ function scOtp() {
     for (var i = 0; i < 6; i++)
       h += '<span class="' + (i === S.otp.length ? "f" : "") + '">' + (S.otp[i] || "") + "</span>";
     document.getElementById("ot").innerHTML = h;
-    nx.disabled = S.otp.length !== 6 || S.busy;
+    /* Once the sixth digit is in we have promised, on screen, to verify by
+       ourselves. Leaving the button live alongside that promise invites the
+       patient to do the same thing twice, and the second one always fails. */
+    nx.disabled = S.otp.length !== 6 || S.busy || !!otpAutoT;
     /* The reference says "auto verifying OTP". A kiosk browser cannot read the
        patient's SMS, so what we actually promise is narrower and true: once six
        digits are in, they do not have to go find the button. */
@@ -1033,8 +1051,10 @@ function scOtp() {
     if (av) av.innerHTML = (S.otp.length === 6 && !S.busy)
       ? '<div class="autov"><span class="sp"></span>' +
         L("\u0905\u092a\u0928\u0947 \u0906\u092a \u091c\u093e\u0901\u091a\u093e \u091c\u093e \u0930\u0939\u093e \u0939\u0948", "Auto Verifying OTP") + "</div>" : "";
-    if (S.otp.length === 6 && !S.busy && !autoT)
-      autoT = setTimeout(function () { autoT = null; submit(); }, 550);
+    if (S.otp.length === 6 && !S.busy && !otpAutoT) {
+      otpAutoT = setTimeout(function () { otpAutoT = null; submit(); }, 550);
+      nx.disabled = true;
+    }
   }
 
   function drawRetry() {
@@ -1064,10 +1084,14 @@ function scOtp() {
 
   async function submit() {
     if (S.otp.length !== 6 || S.busy) return;
+    stopOtpAuto();
     S.busy = true; S.error = ""; nx.textContent = L("\u091c\u093e\u0901\u091a\u093e \u091c\u093e \u0930\u0939\u093e \u0939\u0948\u2026", "Checking\u2026"); nx.disabled = true;
     try {
       var r = await api("/api/otp/verify", { phone: S.phone, code: S.otp });
       if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+      stopOtpAuto();
+      /* Spent. Clearing it means nothing left running can offer it again. */
+      S.otp = "";
       S.otpUntil = 0;
       S.abha = r.abhaJustCreated || (r.patient && r.patient.abhaNumber) || null;
       S.knownName = (r.patient && r.patient.name) || "";
@@ -1085,7 +1109,7 @@ function scOtp() {
     if (e.target.closest("#fill")) { S.otp = S.devCode || ""; return draw(); }
     var b = e.target.closest("[data-k]"); if (!b) return;
     var k = b.dataset.k;
-    if (autoT) { clearTimeout(autoT); autoT = null; }
+    stopOtpAuto();
     if (k === "del") S.otp = S.otp.slice(0, -1);
     else if (S.otp.length < 6) S.otp += k;
     draw();
@@ -1093,6 +1117,7 @@ function scOtp() {
   nx.onclick = submit;
   function leave(to) {
     if (otpTimer) { clearInterval(otpTimer); otpTimer = null; }
+    stopOtpAuto();
     S.otp = ""; S.error = ""; S.otpUntil = 0; go(to);
   }
   document.getElementById("edit").onclick = function () { leave("phone"); };

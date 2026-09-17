@@ -1499,8 +1499,23 @@ async function api(req, res, pathname) {
   if (pathname === "/api/otp/verify" && method === "POST") {
     const { phone, code, name, ageYears, sex, heightCm, weightKg, language } = await readBody(req);
     const digits = String(phone || "").replace(/\D/g, "");
-    const challenge = [...store.otps].reverse().find((o) => o.phone === digits && !o.used);
-    if (!challenge) return bad(res, 400, "That code has expired. Ask for a new one.");
+    /* There are three separate ways to have no live code, and they used to all
+       come back as "that code has expired". That was the wrong thing to tell a
+       patient who had just typed a correct code seconds ago and had it accepted
+       — the second request in a double submit read as a rejection of the code
+       itself, on screen, in red, right after being let in. Say which it is. */
+    const forPhone = [...store.otps].reverse().filter((o) => o.phone === digits);
+    const challenge = forPhone.find((o) => !o.used);
+    if (!challenge) {
+      const last = forPhone[0];
+      if (!last) return bad(res, 400, "No code has been sent to that number. Ask for a new one.");
+      if (last.code === String(code || "")) {
+        // The right code, already spent. Nothing is wrong with the patient's
+        // typing, so do not tell them there is.
+        return bad(res, 409, "That code has already been used. If you are not through yet, ask for a new one.");
+      }
+      return bad(res, 400, "That code has already been used. Ask for a new one.");
+    }
     // The SMS told the patient this code is only good for 10 minutes. Before
     // this check existed, that was a promise the server never kept — a code
     // photographed off a slip hours earlier, or glanced at on a shared kiosk
@@ -1515,6 +1530,7 @@ async function api(req, res, pathname) {
       return bad(res, 400, "That code is not right.");
     }
     challenge.used = true;
+    challenge.usedAt = now();
 
     const clean = (name || "").trim();
     let patient = store.patients.find((p) => p.primaryPhone === digits && (!clean || p.name === clean));
