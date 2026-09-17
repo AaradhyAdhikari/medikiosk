@@ -135,8 +135,13 @@ try {
   }
 } catch (e) {
   console.warn("  ✗ Firebase init failed:", e.message);
-  if (process.env.VERCEL) {
-    console.warn("     Firebase is REQUIRED for Vercel - check your environment variables");
+  if (SERVERLESS) {
+    /* Not required — the app runs without it. But on a serverless host the only
+       durable store IS Firebase, so without it every cold start begins with an
+       empty database and yesterday's visits are gone. Say that, rather than
+       "REQUIRED", which sends people hunting for a failure that is not there. */
+    console.warn("     Without it this deployment keeps nothing: each cold start begins empty.");
+    console.warn("     Set FIREBASE_DB_URL and FIREBASE_SERVICE_ACCOUNT to fix that.");
   }
 }
 
@@ -223,6 +228,16 @@ function logEvent(kind, meta) {
 // ─────────────────────────────────────────────────────────── auth
 
 const SECRET = (() => {
+  /* On a normal install the secret lives in the data folder and survives
+     restarts, so a clinician stays logged in. On a serverless host that folder
+     is a fresh temp dir per cold start, so a generated secret would be a new
+     secret every few minutes and every clinician would be logged out mid-shift.
+     SESSION_SECRET is the way out; without it we still work, just badly, and
+     say so rather than letting it look like a mystery. */
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  if (SERVERLESS) {
+    console.warn("  ! SESSION_SECRET is not set. Logins will not survive a cold start.");
+  }
   const f = path.join(DATA, "secret");
   fs.mkdirSync(DATA, { recursive: true });
   if (fs.existsSync(f)) return fs.readFileSync(f, "utf8");
@@ -2317,12 +2332,21 @@ async function api(req, res, pathname) {
   // their own app, and a terminal window they never type into is not a terminal
   // window they should have to think about. NO_OPEN=1 turns this off.
   function openBrowser(url) {
-    if (process.env.NO_OPEN) return;
+    // Nothing to open on a serverless host, and nothing to open it with.
+    if (process.env.NO_OPEN || SERVERLESS) return;
     const { spawn } = require("child_process");
     try {
-      if (process.platform === "win32") spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
-      else if (process.platform === "darwin") spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-      else spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+      let child;
+      if (process.platform === "win32") child = spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" });
+      else if (process.platform === "darwin") child = spawn("open", [url], { detached: true, stdio: "ignore" });
+      else child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
+      /* spawn reports a missing binary asynchronously, as an "error" event on
+         the child. An "error" event with no listener is rethrown as an uncaught
+         exception, so the catch below never sees it: on a box without xdg-open
+         the server would die a tick after it started serving. Listen and
+         swallow. */
+      child.on("error", () => {});
+      child.unref();
     } catch {
       // No browser to open is not a reason to stop the server.
     }
@@ -2374,7 +2398,9 @@ async function api(req, res, pathname) {
     console.log(`   Languages: ${routed.langs + 2} translated · ${routed.added} routing keywords derived`);
     console.log("   Data:      ./data/db.json   (delete the data folder to start over)");
     console.log(`\n  ${line}`);
-    console.log("\n   Opening your browser… (keep this window open — it IS the app)\n");
+    if (!SERVERLESS && !process.env.NO_OPEN) {
+      console.log("\n   Opening your browser… (keep this window open — it IS the app)\n");
+    }
     openBrowser(`http://localhost:${PORT}`);
   });
 
