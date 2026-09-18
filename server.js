@@ -529,6 +529,80 @@ const sendAbhaSms = (phone, abha, name) =>
 const sendLoginIdSms = (phone, loginId, name) =>
   sendSms(phone, `Namaste${name ? " " + name : ""}. Your MediKiosk patient login ID is ${loginId}. Use it with your password to see your records. Never share your password. — ${HOSPITAL}`, { VAR1: loginId });
 
+// ─────────────────────────────────────────────────────────── spoken prompts
+
+/* The kiosk speaks through the browser's own voices where it can. A Windows
+   laptop, though, usually ships with English voices and nothing else, so a
+   Hindi or Marathi patient got silence and a "text only" label. This is the
+   fallback: the browser asks here, and the server fetches the audio from a
+   free, keyless speech service and hands it back as MP3.
+
+   What is spoken is the kiosk's own prompts — the questions, "please check
+   this", the token — never the patient's answers, so nothing about them
+   leaves the building through this path. TTS_PROVIDER=off disables it. */
+const TTS_ON = String(process.env.TTS_PROVIDER || "google").toLowerCase() !== "off";
+const TTS_LANGS = { hi: "hi", en: "en", mr: "mr", gu: "gu", pa: "pa", ta: "ta", te: "te" };
+const TTS_DIR = path.join(DATA, "tts");
+const ttsMem = new Map();                          // hash -> Buffer, bounded below
+const TTS_MEM_MAX = 300;
+
+async function ttsAudio(lang, text) {
+  const key = crypto.createHash("sha1").update(lang + "\n" + text).digest("hex");
+  if (ttsMem.has(key)) return ttsMem.get(key);
+  const file = path.join(TTS_DIR, key + ".mp3");
+  try { if (fs.existsSync(file)) return remember(key, fs.readFileSync(file)); } catch { }
+
+  // The service takes ~200 characters a call. Split on sentence ends, then
+  // on commas, so the pauses fall where a reader would pause anyway. MP3
+  // frames concatenate cleanly, so the pieces play as one clip.
+  const parts = [];
+  for (const piece of splitForSpeech(text, 180)) {
+    const url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" +
+      TTS_LANGS[lang] + "&q=" + encodeURIComponent(piece);
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36",
+        Referer: "https://translate.google.com/",
+      },
+    });
+    if (!r.ok) throw new Error("speech service " + r.status);
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 100 || !/^audio/.test(r.headers.get("content-type") || "")) throw new Error("speech service returned no audio");
+    parts.push(buf);
+  }
+  const audio = Buffer.concat(parts);
+  try { fs.mkdirSync(TTS_DIR, { recursive: true }); fs.writeFileSync(file, audio); } catch { /* read-only host: memory only */ }
+  return remember(key, audio);
+}
+
+function remember(key, buf) {
+  if (ttsMem.size >= TTS_MEM_MAX) ttsMem.delete(ttsMem.keys().next().value);
+  ttsMem.set(key, buf);
+  return buf;
+}
+
+function splitForSpeech(text, max) {
+  const out = [];
+  // Devanagari danda (।) ends a sentence in Hindi and Marathi.
+  for (const sentence of text.split(/(?<=[.!?।])\s+/)) {
+    if (sentence.length <= max) { if (sentence.trim()) out.push(sentence.trim()); continue; }
+    let cur = "";
+    for (const clause of sentence.split(/(?<=[,;:])\s+/)) {
+      if ((cur + " " + clause).trim().length > max && cur) { out.push(cur.trim()); cur = clause; }
+      else cur = (cur + " " + clause).trim();
+    }
+    // A clause still longer than the limit is cut at word boundaries.
+    while (cur.length > max) {
+      const cut = cur.lastIndexOf(" ", max);
+      out.push(cur.slice(0, cut > 40 ? cut : max).trim());
+      cur = cur.slice(cut > 40 ? cut : max).trim();
+    }
+    if (cur) out.push(cur);
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────── the interview
 
 /* Every language the kiosk offers, not only Hindi and English. A patient who
@@ -1367,7 +1441,26 @@ async function api(req, res, pathname) {
       // Provider and model only — never the key. Enough to see, from the kiosk
       // or a browser tab, why a scan came back unread.
       aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
+      tts: TTS_ON,
     });
+  }
+
+  // ---- spoken prompts, for languages this machine has no voice for
+  if (pathname === "/api/tts" && method === "GET") {
+    if (!TTS_ON) return bad(res, 404, "Spoken prompts are switched off.");
+    const qs = new URL(req.url, "http://x").searchParams;
+    const lang = String(qs.get("lang") || "").toLowerCase();
+    const text = String(qs.get("q") || "").replace(/\s+/g, " ").trim().slice(0, 800);
+    if (!TTS_LANGS[lang]) return bad(res, 400, "Unsupported language.");
+    if (!text) return bad(res, 400, "q is required.");
+    try {
+      const audio = await ttsAudio(lang, text);
+      // The same prompt is said to every patient; let the browser keep it.
+      return send(res, 200, audio, { "content-type": "audio/mpeg", "cache-control": "public, max-age=604800" });
+    } catch (e) {
+      console.warn("  tts failed (" + lang + "):", String(e.message).slice(0, 120));
+      return bad(res, 502, "Speech is not available right now.");
+    }
   }
 
   // ---- the department registry

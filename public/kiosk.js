@@ -185,20 +185,51 @@ function ttsVoiceFor(code) {
   for (var j = 0; j < voices.length; j++) if (voices[j].lang && voices[j].lang.split(/[-_]/)[0] === base) return voices[j];
   return null;
 }
-function canSpeak(code) { return ttsVoiceFor(code || S.lang) !== null; }
+/* Two ways to say a prompt aloud. The machine's own voice, when it has one
+   for the language — instant, offline. Otherwise the server's /api/tts,
+   which fetches the audio for any of the seven languages; that is how a
+   Windows laptop with only English voices still speaks Hindi and Marathi.
+   S.tts is set from /api/config; until it arrives we assume the server can,
+   because the language screen must not label Hindi "text only" for the
+   second it takes the config call to return. */
+function canSpeak(code) {
+  return ttsVoiceFor(code || S.lang) !== null || S.tts !== false;
+}
+
+var ttsAudio = null;                               // the clip currently playing, if any
+function hush() {
+  try { if (VOICE_OUT) window.speechSynthesis.cancel(); } catch (e) {}
+  if (ttsAudio) { try { ttsAudio.pause(); } catch (e) {} ttsAudio = null; }
+}
 
 function speak(text) {
-  if (!VOICE_OUT || !text) return;
-  var voice = ttsVoiceFor(S.lang);
-  if (voice === null) return;                      // no voice for this language on this machine
-  try {
-    window.speechSynthesis.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang = window.langMeta(S.lang).tts;
-    if (voice) u.voice = voice;
-    u.rate = 0.92;
-    window.speechSynthesis.speak(u);
-  } catch (e) {}
+  if (!text) return;
+  hush();
+  var voice = VOICE_OUT ? ttsVoiceFor(S.lang) : null;
+  /* An exact local voice — hi-IN for Hindi — wins. A merely same-language
+     one (undefined: list not ready) is tried too. But a machine with NO
+     voice for the language goes to the server rather than reading Marathi
+     with an English voice, which is worse than silence. */
+  if (voice !== null) {
+    try {
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = window.langMeta(S.lang).tts;
+      if (voice) u.voice = voice;
+      u.rate = 0.92;
+      window.speechSynthesis.speak(u);
+      return;
+    } catch (e) { /* fall through to the server */ }
+  }
+  if (S.tts === false) return;
+  var a = new Audio("/api/tts?lang=" + encodeURIComponent(S.lang) + "&q=" + encodeURIComponent(text));
+  ttsAudio = a;
+  a.onended = function () { if (ttsAudio === a) ttsAudio = null; };
+  a.onerror = function () { if (ttsAudio === a) ttsAudio = null; console.warn("Spoken prompt unavailable (" + S.lang + ")."); };
+  // Browsers block audio until the page has been tapped once; the kiosk is
+  // always tapped before the first question, so this only matters for a
+  // tab opened straight onto a screen — and then it fails quietly.
+  var p = a.play();
+  if (p && p.catch) p.catch(function () { if (ttsAudio === a) ttsAudio = null; });
 }
 // Chrome populates the voice list asynchronously; without this the first
 // question can be judged voiceless purely because the list had not arrived.
@@ -324,7 +355,9 @@ document.getElementById("btn-records").onclick = function () { openDashboard(); 
    change is how a patient ended up reading "that code has expired" on the page
    that asks for their name. keepError is for the one caller that navigates in
    order to show the error somewhere else. */
-function go(s, keepError) { if (!keepError) S.error = ""; S.screen = s; stopListen(); render(); }
+// Leaving a screen silences its prompt: a question still being read out over
+// the next screen is confusing in any language.
+function go(s, keepError) { if (!keepError) S.error = ""; S.screen = s; stopListen(); hush(); render(); }
 
 /* ── spoken navigation commands ──────────────────────
    The PS asks for voice throughout, not only for answers. These work on every
@@ -416,7 +449,7 @@ function scLang() {
       // has no voice for it — the patient finds out here, not three screens in.
       return '<button class="chip script-' + o.script + '" lang="' + o.code + '" data-i="' + i + '">' +
         '<span class="glyph">' + o.glyph + "</span><span>" + o.native +
-        "<small>" + o.english + (VOICE_OUT && !canSpeak(o.code) ? " · text only" : "") +
+        "<small>" + o.english + (!canSpeak(o.code) ? " · text only" : "") +
         "</small></span></button>";
     }).join("") + "</div>" +
 
@@ -1454,7 +1487,7 @@ function scQuestion() {
   document.getElementById("bk").onclick = function () { S.step === 0 ? go("system") : (S.step--, go("q")); };
   document.getElementById("sk").onclick = function () { S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q")); };
 
-  if (VOICE_OUT) setTimeout(function () { speak(L(q.hi, q.en)); }, 280);
+  if (canSpeak()) setTimeout(function () { speak(L(q.hi, q.en)); }, 280);
 }
 
 function scRed() {
@@ -1799,5 +1832,6 @@ api("/api/config", null, "GET").then(function (c) {
   S.hospital = c.hospital || "";
   S.publicUrl = c.publicUrl || "";
   S.aiEnabled = c.aiEnabled !== false;   // the scan screen says up front when reading is off
+  S.tts = c.tts !== false;               // server-side speech for languages this machine cannot voice
   if (c.aiEnabled === false) console.warn("MediKiosk: no AI key on the server — documents will be saved unread, summaries assembled offline.");
 }).catch(function () { /* the slip falls back to this page's origin */ });
