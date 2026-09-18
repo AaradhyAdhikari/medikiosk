@@ -1450,7 +1450,9 @@ async function api(req, res, pathname) {
     if (!TTS_ON) return bad(res, 404, "Spoken prompts are switched off.");
     const qs = new URL(req.url, "http://x").searchParams;
     const lang = String(qs.get("lang") || "").toLowerCase();
-    const text = String(qs.get("q") || "").replace(/\s+/g, " ").trim().slice(0, 800);
+    // A whole screen — question, hint, eight options — is a few hundred
+    // characters; this is a ceiling against abuse, not a working limit.
+    const text = String(qs.get("q") || "").replace(/\s+/g, " ").trim().slice(0, 1500);
     if (!TTS_LANGS[lang]) return bad(res, 400, "Unsupported language.");
     if (!text) return bad(res, 400, "q is required.");
     try {

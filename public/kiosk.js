@@ -212,11 +212,17 @@ function speak(text) {
      with an English voice, which is worse than silence. */
   if (voice !== null) {
     try {
-      var u = new SpeechSynthesisUtterance(text);
-      u.lang = window.langMeta(S.lang).tts;
-      if (voice) u.voice = voice;
-      u.rate = 0.92;
-      window.speechSynthesis.speak(u);
+      // Chrome cuts a single long utterance off after ~15 seconds. One
+      // utterance per sentence, queued, reads a whole screen to the end.
+      var lang = window.langMeta(S.lang).tts;
+      text.split(/(?<=[.!?।])\s+/).forEach(function (sentence) {
+        if (!sentence.trim()) return;
+        var u = new SpeechSynthesisUtterance(sentence);
+        u.lang = lang;
+        if (voice) u.voice = voice;
+        u.rate = 0.92;
+        window.speechSynthesis.speak(u);
+      });
       return;
     } catch (e) { /* fall through to the server */ }
   }
@@ -300,9 +306,43 @@ function shrink(file, cb) {
 
 /* ── chrome ─────────────────────────────────────────── */
 
+/* Everything on the screen a patient might need read to them, in the order
+   it appears: the heading, the hint under it, notices, and every option they
+   could choose. Not the English echo of a translated question, not the step
+   counter, and not anything the patient themselves entered — their spoken
+   answer, their typed words, the summary built from them — since the server
+   voice sends what it reads to an outside service and that promise holds. */
+var SPEAK_SKIP = ".q-en, .eyebrow, .rail, .steps, .glyph, .transcript, .field, .summary-sec, .dsec, .dline, .dstat, " +
+  ".thumbdate, .thumbnote, .docthumb b, [aria-hidden=true], svg, script, style";
+var SPEAK_PICK = "h1, h2, h3, p, .notice, .chip, .faces button, .flabel, label";
+function spokenText(el) {
+  // The element's text with the decorative and private parts left out —
+  // a language chip says "हिन्दी Hindi", not "अ हिन्दी Hindi".
+  var t = "";
+  for (var n = el.firstChild; n; n = n.nextSibling) {
+    if (n.nodeType === 3) t += n.nodeValue;
+    else if (n.nodeType === 1 && !n.matches(SPEAK_SKIP)) t += " " + spokenText(n) + " ";
+  }
+  return t.replace(/\s+/g, " ").trim();
+}
+function screenText() {
+  var seen = {}, out = [];
+  var nodes = body.querySelectorAll(SPEAK_PICK);
+  for (var i = 0; i < nodes.length; i++) {
+    var el = nodes[i];
+    if (el.closest(SPEAK_SKIP)) continue;
+    if (el.offsetParent === null) continue;                     // hidden
+    if (el.querySelector(SPEAK_PICK)) continue;                 // a container: its children are read instead
+    var t = spokenText(el);
+    if (!t || t.length < 2 || seen[t]) continue;
+    seen[t] = 1;
+    out.push(/[.!?।]$/.test(t) ? t : t + ".");
+  }
+  return out.join(" ");
+}
+
 document.getElementById("btn-speak").onclick = function () {
-  var h = document.querySelector("h1.q");
-  speak(h ? h.textContent : "");
+  speak(screenText());
 };
 document.getElementById("btn-lang").onclick = function () {
   // The pill toggles between the language chosen at the start and English —
@@ -1470,7 +1510,7 @@ function scQuestion() {
   };
 
   function runCommand(cmd) {
-    if (cmd === "repeat") return speak(L(q.hi, q.en));
+    if (cmd === "repeat") return speak(screenText());
     if (cmd === "help") return document.getElementById("btn-help").click();
     if (cmd === "back") return S.step === 0 ? go("system") : (S.step--, go("q"));
     if (cmd === "skip") return S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q"));
@@ -1487,7 +1527,8 @@ function scQuestion() {
   document.getElementById("bk").onclick = function () { S.step === 0 ? go("system") : (S.step--, go("q")); };
   document.getElementById("sk").onclick = function () { S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q")); };
 
-  if (canSpeak()) setTimeout(function () { speak(L(q.hi, q.en)); }, 280);
+  // The question, then the hint, then the choices — read as the screen is laid out.
+  if (canSpeak()) setTimeout(function () { speak(screenText()); }, 280);
 }
 
 function scRed() {

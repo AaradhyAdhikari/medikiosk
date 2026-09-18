@@ -382,5 +382,29 @@ window.TR.mr = {
   "All done. Your token is {}": "झाले. तुमचे टोकन {} आहे",
   "Department": "विभाग",
   "Show this at the desk": "हे काउंटरवर दाखवा",
-  "Print slip": "पावती छापा"
+  "Print slip": "पावती छापा",
+
+  // Sign-in, emergency and document screens — added Sep 2026.
+  "Where is the problem? Touch to show us": "त्रास कुठे आहे? स्पर्श करून दाखवा",
+  "How much is it troubling you?": "तुम्हाला किती त्रास होतो आहे?",
+  "What makes it better?": "कशाने आराम मिळतो?",
+  "Let's Get You Started": "चला सुरुवात करूया",
+  "Enter your phone number, we'll send a one-time code to verify it.": "तुमचा फोन नंबर टाका, पडताळणीसाठी आम्ही एक वेळचा कोड पाठवू.",
+  "By continuing, you agree to our ": "पुढे जाऊन तुम्ही आमच्या ",
+  "Terms & Conditions": "अटी व शर्ती",
+  " and ": " आणि ",
+  "Privacy Policy": "गोपनीयता धोरण",
+  "Use ABHA or Aadhaar instead": "त्याऐवजी ABHA किंवा आधार वापरा",
+  "We Sent You a Code": "आम्ही तुम्हाला कोड पाठवला आहे",
+  "Enter the 6-digit code, we've sent to your phone number": "तुमच्या फोन नंबरवर पाठवलेला ६ अंकी कोड टाका",
+  "Retry in {} Seconds": "{} सेकंदांनी पुन्हा प्रयत्न करा",
+  "Your case is now marked for immediate attention and is at the top of the clinicians' list. Please stay here.": "तुमची केस तातडीच्या लक्षासाठी नोंदवली आहे आणि डॉक्टरांच्या यादीत सर्वात वर आहे. कृपया इथेच थांबा.",
+  "I pressed this by mistake": "मी चुकून दाबले",
+  "Automatic reading is switched off on this kiosk (no AI key is configured). Photos will be saved and your doctor will read them.": "या कियॉस्कवर कागद आपोआप वाचले जात नाहीत (AI की सेट केलेली नाही). फोटो जतन होतील आणि डॉक्टर ते वाचतील.",
+  "Not read automatically — your doctor will see the photo": "आपोआप वाचले नाही — डॉक्टर फोटो पाहतील",
+  "Not read, as you asked": "तुमच्या सांगण्याप्रमाणे वाचले नाही",
+  "The photo is not clear enough — retake it, or your doctor will read it": "फोटो पुरेसा स्पष्ट नाही — पुन्हा काढा, किंवा डॉक्टर तो वाचतील",
+  "Reading failed — the photo is saved and your doctor will see it": "वाचता आले नाही — फोटो जतन झाला आहे आणि डॉक्टर तो पाहतील",
+  "That file is not a photo, or could not be opened. Please take a photo with the camera.": "ही फाइल फोटो नाही किंवा उघडता आली नाही. कृपया कॅमेऱ्याने फोटो काढा.",
+  "This paper could not be saved. Please try again.": "हा कागद जतन होऊ शकला नाही. कृपया पुन्हा प्रयत्न करा."
 };
