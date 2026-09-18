@@ -1519,22 +1519,33 @@ function scDocs() {
     '<p class="q-en">' + L("एक-एक करके काग़ज़ सीधा रखिए", "Place each paper flat, one at a time") + "</p>" +
     '<div class="docgrid" id="dg"></div>' +
     '<input type="file" id="fi" accept="image/*" capture="environment" multiple hidden>' +
-    '<div class="notice" style="margin-top:14px">' +
-      L("जो काग़ज़ मशीन नहीं पढ़ पाती, उसकी तस्वीर डॉक्टर को दिखाई जाती है — कुछ भी छूटता नहीं।",
-        "Anything the system cannot read is still passed to your doctor as an image — nothing is lost.") + "</div>";
+    /* When the server has no AI key at all, nothing will ever be read. Say so
+       here, before the patient photographs six pages expecting a summary,
+       rather than letting each one come back "saved as image" in turn. */
+    (S.aiEnabled === false
+      ? '<div class="notice" style="margin-top:14px">' +
+          L("इस मशीन पर काग़ज़ अपने-आप नहीं पढ़े जा सकते — तस्वीरें सेव होंगी और डॉक्टर उन्हें देखेंगे।",
+            "Automatic reading is switched off on this kiosk (no AI key is configured). Photos will be saved and your doctor will read them.") + "</div>"
+      : '<div class="notice" style="margin-top:14px">' +
+          L("जो काग़ज़ मशीन नहीं पढ़ पाती, उसकी तस्वीर डॉक्टर को दिखाई जाती है — कुछ भी छूटता नहीं।",
+            "Anything the system cannot read is still passed to your doctor as an image — nothing is lost.") + "</div>") +
+    '<div id="docerr"></div>';
   foot.innerHTML = '<button class="btn" id="nx"></button><button class="btn ghost" id="bk">← ' + L("पीछे","Back") + "</button>";
 
   var nx = document.getElementById("nx");
+  var inFlight = 0;   // several papers may be read at once; "busy" ends when the last one does
   function paint() {
     // Ordered by the date on the paper as each read comes back, not by the
     // order they happened to be held up to the camera.
     document.getElementById("dg").innerHTML = chronological(S.docs).map(function (d) {
-      return '<div class="docthumb' + (d.pending || d.docDate ? "" : " nodate") + '">' +
+      return '<div class="docthumb' + (d.pending || d.docDate ? "" : " nodate") + (d.readStatus === "read" ? "" : " unread") + '">' +
         '<img src="' + d.thumb + '" alt="">' +
         (d.pending ? "" : '<span class="thumbdate">' + (docDay(d) || L("तारीख़ नहीं", "undated")) + "</span>") +
-        "<b>" + esc(d.label) + "</b></div>";
+        "<b>" + esc(d.label) + "</b>" +
+        (d.note ? '<small class="thumbnote">' + esc(d.note) + "</small>" : "") + "</div>";
     }).join("") + '<button class="adddoc" id="add">' + ICON("camera",24) + L("काग़ज़ जोड़ें","Add paper") + "</button>";
     document.getElementById("add").onclick = function () { document.getElementById("fi").click(); };
+    S.busy = inFlight > 0;
     nx.textContent = S.busy ? L("पढ़ा जा रहा है…","Reading…")
       : S.docs.length ? L("आगे बढ़ें","Continue") + " (" + S.docs.length + ")"
       : L("मेरे पास कोई काग़ज़ नहीं","I have no documents");
@@ -1542,25 +1553,61 @@ function scDocs() {
   }
   paint();
 
+  /* What to tell the patient about a paper that came back without a reading.
+     The server names the reason; each one calls for different words, and
+     none of them is "the machine could not read it" when the truth is that
+     nobody asked it to. */
+  function readNote(status) {
+    if (status === "read") return "";
+    if (status === "no_key") return L("अपने-आप नहीं पढ़ा गया — डॉक्टर तस्वीर देखेंगे", "Not read automatically — your doctor will see the photo");
+    if (status === "no_consent") return L("आपकी अनुमति के बिना नहीं पढ़ा गया", "Not read, as you asked");
+    if (status === "unreadable") return L("तस्वीर साफ़ नहीं है — दोबारा लें या डॉक्टर देखेंगे", "The photo is not clear enough — retake it, or your doctor will read it");
+    if (status === "failed") return L("पढ़ने में दिक़्क़त आई — तस्वीर सेव है, डॉक्टर देखेंगे", "Reading failed — the photo is saved and your doctor will see it");
+    return "";
+  }
+
+  /* Papers are read one after another, not all at once. A free-tier model
+     key allows only a request or two a second, and five pages photographed
+     together would otherwise arrive as five simultaneous calls and four
+     rate-limit errors. Sequential costs the patient nothing they notice — the
+     thumbnails still appear immediately — and every page actually gets read. */
+  var queue = Promise.resolve();
+  function readOne(entry, dataUrl) {
+    return api("/api/visits/" + S.visit.id + "/documents", { dataUrl: dataUrl }).then(function (r) {
+      entry.label = r.document.label;
+      entry.id = r.document.id;
+      entry.docDate = r.document.docDate || null;   // the date printed on the paper
+      entry.dateText = r.document.dateText || null;
+      entry.readStatus = r.readStatus || r.document.readStatus || "read";
+      entry.note = readNote(entry.readStatus);
+      if (r.readError) console.warn("Document read failed on the server:", r.readError);
+      entry.pending = false;
+    }, function (err) {
+      /* The upload itself failed, so nothing reached the server — this
+         paper is NOT saved, and saying "saved as image" here would be a
+         lie the doctor pays for. Drop it and say what happened. */
+      S.docs.splice(S.docs.indexOf(entry), 1);
+      document.getElementById("docerr").innerHTML = '<div class="notice" style="margin-top:10px">' +
+        L("यह काग़ज़ सेव नहीं हो पाया। कृपया फिर से कोशिश कीजिए।", "This paper could not be saved. Please try again.") +
+        (err && err.message ? " <span style=\"color:var(--muted)\">(" + esc(err.message) + ")</span>" : "") + "</div>";
+    }).then(function () { inFlight--; paint(); });
+  }
+
   document.getElementById("fi").onchange = function (e) {
     var files = Array.prototype.slice.call(e.target.files || []);
     e.target.value = "";
+    document.getElementById("docerr").innerHTML = "";
     files.forEach(function (file) {
-      shrink(file, async function (dataUrl) {
-        if (!dataUrl) return;
-        var entry = { thumb: dataUrl, label: L("पढ़ा जा रहा है…", "Reading…"), pending: true, docDate: null };
-        S.docs.push(entry); S.busy = true; paint();
-        try {
-          var r = await api("/api/visits/" + S.visit.id + "/documents", { dataUrl: dataUrl });
-          entry.label = r.document.label;
-          entry.id = r.document.id;
-          entry.docDate = r.document.docDate || null;   // the date printed on the paper
-          entry.dateText = r.document.dateText || null;
-        } catch (err) {
-          entry.label = L("तस्वीर सेव हुई", "Saved as image");
+      shrink(file, function (dataUrl) {
+        if (!dataUrl) {
+          document.getElementById("docerr").innerHTML = '<div class="notice" style="margin-top:10px">' +
+            L("यह फ़ाइल तस्वीर नहीं है या खुल नहीं सकी। कृपया कैमरे से फ़ोटो लीजिए।",
+              "That file is not a photo, or could not be opened. Please take a photo with the camera.") + "</div>";
+          return;
         }
-        entry.pending = false;
-        S.busy = false; paint();
+        var entry = { thumb: dataUrl, label: L("पढ़ा जा रहा है…", "Reading…"), pending: true, docDate: null };
+        S.docs.push(entry); inFlight++; paint();
+        queue = queue.then(function () { return readOne(entry, dataUrl); });
       });
     });
   };
@@ -1746,7 +1793,11 @@ render();
 /* The hospital name and the externally reachable base URL, for the token slip.
    Fetched without blocking the first screen — a patient should never wait on a
    config call to choose their language — and the slip is many screens away. */
-api("/api/config").then(function (c) {
+/* api() defaults to POST, and this route only answers GET — so this call had
+   been quietly 404ing and the slip never learned the hospital's name. */
+api("/api/config", null, "GET").then(function (c) {
   S.hospital = c.hospital || "";
   S.publicUrl = c.publicUrl || "";
+  S.aiEnabled = c.aiEnabled !== false;   // the scan screen says up front when reading is off
+  if (c.aiEnabled === false) console.warn("MediKiosk: no AI key on the server — documents will be saved unread, summaries assembled offline.");
 }).catch(function () { /* the slip falls back to this page's origin */ });

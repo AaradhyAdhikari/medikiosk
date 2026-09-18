@@ -53,8 +53,8 @@ FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@medikiosk-25458.iam.gserviceaccoun
 ### Optional Variables
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-ANTHROPIC_MODEL=claude-sonnet-4-5
+GROQ_API_KEY=gsk_...                       # free, console.groq.com  (tried first)
+MISTRAL_API_KEY=...                        # free "Experiment" plan, console.mistral.ai  (fallback)
 SMS_PROVIDER=console
 HOSPITAL_NAME=All India Institute of Ayurveda
 ```

@@ -28,3 +28,6 @@ push-log.txt
 .push-request
 .push-result
 .push-result.tmp
+
+# benchmark output (tools/ai-bench.js)
+tools/bench-samples/last-run.json

@@ -58,19 +58,10 @@ const PORT = Number(process.env.PORT || 3000);
 /* Which model service writes the summary and reads the scanned documents.
    Same shape as SMS_PROVIDER below: one switch, several back ends, and the
    app degrades to its offline path rather than breaking if none is set.
-   Provider is inferred from whichever key is present, so setting a single
-   key in .env is enough; AI_PROVIDER only matters if you set both. */
-const AI_PROVIDER = String(
-  process.env.AI_PROVIDER ||
-  (process.env.MISTRAL_API_KEY ? "mistral" : "anthropic")
-).toLowerCase();
-const AI_KEY =
-  AI_PROVIDER === "mistral" ? (process.env.MISTRAL_API_KEY || "")
-                            : (process.env.ANTHROPIC_API_KEY || "");
-const AI_MODEL =
-  process.env.AI_MODEL ||
-  process.env.ANTHROPIC_MODEL ||                 // kept working for older .env files
-  (AI_PROVIDER === "mistral" ? "mistral-large-latest" : "claude-sonnet-4-5");
+   Provider is inferred from whichever key is present (see ai.js), so
+   setting a single key in .env is enough; AI_PROVIDER only matters if you
+   set several. Bound properly, with the timeout, further down. */
+const { provider: AI_PROVIDER, model: AI_MODEL } = require("./ai").configure(process.env);
 const HOSPITAL = process.env.HOSPITAL_NAME || "All India Institute of Ayurveda";
 /* The address a phone at the check-in desk can actually reach. The token QR
    has to carry an absolute URL, and `localhost:3000` — which is what the
@@ -446,6 +437,7 @@ function chronological(docs) {
 // What the patient's own record shows for one visit's documents.
 const publicDoc = (d) => ({
   id: d.id, visitId: d.visitId, label: d.label, readable: d.readable,
+  readStatus: d.readStatus || (d.readable ? "read" : "unreadable"),
   extracted: d.extracted, createdAt: d.createdAt,
   docDate: d.docDate || null, dateText: d.dateText || null,
 });
@@ -918,99 +910,13 @@ function reconcileDepartment(modelDept, ruleDept, system) {
 
 // ─────────────────────────────────────────────────────────── AI (optional)
 
-const aiOn = () => Boolean(AI_KEY);
-
-/* Callers build content in Anthropic's block shape — [{type:"text"...},
-   {type:"image", source:{type:"base64", media_type, data}}]. That stays the
-   internal format and each provider translates on the way out, so the two
-   call sites never learn which service is answering. */
-function toMistralContent(blocks) {
-  return (blocks || []).map(function (b) {
-    if (b && b.type === "image" && b.source && b.source.type === "base64") {
-      // Mistral takes the image as a data URL under image_url, not a source object.
-      return { type: "image_url", image_url: "data:" + b.source.media_type + ";base64," + b.source.data };
-    }
-    return b;                                    // text blocks are identical in both
-  });
-}
-
-async function askAI(content, maxTokens) {
-  if (AI_PROVIDER === "mistral") {
-    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + AI_KEY,
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_tokens: maxTokens || 3000,
-        messages: [{ role: "user", content: toMistralContent(content) }],
-      }),
-    });
-    if (!res.ok) throw new Error("Mistral API " + res.status + " " + (await res.text()).slice(0, 200));
-    const j = await res.json();
-    const msg = j && j.choices && j.choices[0] && j.choices[0].message;
-    const text = msg && msg.content;
-    // Some responses come back as an array of parts rather than a plain string.
-    if (Array.isArray(text)) {
-      return text.map(function (p) { return typeof p === "string" ? p : (p && p.text) || ""; }).join("\n");
-    }
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("Mistral API returned no text");
-    }
-    return text;
-  }
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": AI_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: AI_MODEL,
-      max_tokens: maxTokens || 3000,
-      messages: [{ role: "user", content }],
-    }),
-  });
-  if (!res.ok) throw new Error("Claude API " + res.status + " " + (await res.text()).slice(0, 200));
-  const j = await res.json();
-  return (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
-}
-
-function parseJson(text) {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const c = fence ? fence[1] : text;
-  try { return JSON.parse(c); } catch { }
-  const a = c.indexOf("{"), b = c.lastIndexOf("}");
-  if (a > -1 && b > a) { try { return JSON.parse(c.slice(a, b + 1)); } catch { } }
-  throw new Error("Model did not return parseable JSON");
-}
-
-async function readDocumentAI(dataUrl) {
-  const m = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(dataUrl || "");
-  if (!m) throw new Error("Expected a base64 image data URL");
-  const text = await askAI([
-    { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } },
-    {
-      type: "text",
-      text:
-        "This is a photograph of an Indian medical document — a prescription, lab report, discharge summary " +
-        "or a medicine strip. It may be handwritten, in Hindi or English, and poorly lit.\n\n" +
-        "Extract only what you can actually read. Never guess a drug name, a dose or a value you cannot see " +
-        "clearly — an omission is safe, an invention is dangerous.\n\n" +
-        'Reply with ONLY a JSON object: {"docType": "prescription"|"lab_report"|"discharge"|"medicine_strip"|"other", ' +
-        '"date": the printed date as a plain string or null, "label": a short human label like "Lab report · 12 Jan 2026", ' +
-        '"summary": one sentence on what this document is, ' +
-        '"findings": array of up to 8 short strings — diagnoses, medicines with dose, or test values with units and ranges, ' +
-        '"abnormal": array of values outside their stated reference range, ' +
-        '"readable": true if you could read the clinical content, false if the image is too unclear}',
-    },
-  ], 1500);
-  return parseJson(text);
-}
+/* The provider code lives in ai.js so tools/ai-bench.js can drive the same
+   reader without booting the kiosk. Everything below is a binding. */
+const AI = require("./ai").configure(process.env, { serverless: SERVERLESS });
+const aiOn = () => AI.on;
+const askAI = AI.ask;
+const readDocumentAI = AI.readDocument;
+const parseJson = AI.parseJson;
 
 /* ── system of medicine ───────────────────────────────────────────────
    The patient chooses Ayurvedic, allopathic or both at the kiosk. An
@@ -1456,7 +1362,12 @@ async function api(req, res, pathname) {
 
   // ---- config for the client
   if (pathname === "/api/config" && method === "GET") {
-    return ok(res, { hospital: HOSPITAL, aiEnabled: aiOn(), publicUrl: PUBLIC_URL || null });
+    return ok(res, {
+      hospital: HOSPITAL, aiEnabled: aiOn(), publicUrl: PUBLIC_URL || null,
+      // Provider and model only — never the key. Enough to see, from the kiosk
+      // or a browser tab, why a scan came back unread.
+      aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
+    });
   }
 
   // ---- the department registry
@@ -1822,36 +1733,63 @@ async function api(req, res, pathname) {
     const docId = id();
     const b64 = String(dataUrl).split(",")[1] || "";
     const buf = Buffer.from(b64, "base64");
-    fs.writeFileSync(path.join(UPLOADS, docId + ".jpg"), buf);
+    if (!buf.length) return bad(res, 400, "That image was empty. Please take the photo again.");
+    /* The local copy is a cache; Firebase is the durable store where there is
+       one. On a read-only host this write fails, and a failed cache write must
+       not stop the paper being read — that was the whole point of the scan. */
+    try {
+      fs.writeFileSync(path.join(UPLOADS, docId + ".jpg"), buf);
+    } catch (e) {
+      if (!SERVERLESS) throw e;
+      console.warn("  local upload cache unavailable:", e.message);
+    }
     if (firebaseBucket) {
       await firebaseBucket.file(`uploads/${docId}.jpg`).save(buf, { contentType: "image/jpeg" })
         .catch(e => console.error("Firebase upload error:", e.message));
     }
 
+    /* Every way a scan can end up as "just an image" used to collapse into the
+       same label, so nobody — patient, clinician or the person deploying this —
+       could tell "no key set" from "the model timed out" from "the photo was
+       too blurry". `readStatus` names which it was; the kiosk shows it. */
     let extracted = { summary: "Saved as image — your doctor will read this.", findings: [], readable: false };
     let label = "Saved as image";
+    let readStatus = "no_key";
+    let readError = null;
     const mayRead = visit.consent && visit.consent.docs !== false;
 
-    if (aiOn() && mayRead) {
+    if (!mayRead) {
+      readStatus = "no_consent";
+      label = "Saved — automatic reading was not consented to";
+      extracted.summary = label;
+    } else if (aiOn()) {
       try {
         const r = await readDocumentAI(dataUrl);
         extracted = r;
         label = r.label || r.docType || "Document";
+        readStatus = r.readable === false ? "unreadable" : "read";
       } catch (e) {
+        readStatus = "failed";
+        readError = String(e && e.message || e).slice(0, 200);
         label = "Saved as image — your doctor will read this";
-        logEvent("ocr_failed", { visitId: visit.id, message: String(e.message).slice(0, 200) });
+        // The event log is for the audit trail; the console is what a
+        // deployment's runtime logs actually show. Both, so it is findable.
+        console.error("  ! document read failed (" + AI_PROVIDER + " · " + AI_MODEL + "):", readError);
+        logEvent("ocr_failed", { visitId: visit.id, provider: AI_PROVIDER, model: AI_MODEL, message: readError });
       }
-    } else if (!mayRead) {
-      label = "Saved — automatic reading was not consented to";
-      extracted.summary = label;
+    } else {
+      console.warn("  ! document saved unread: no AI key is configured (set GROQ_API_KEY, MISTRAL_API_KEY or ANTHROPIC_API_KEY).");
     }
 
-    const doc = { id: docId, visitId: visit.id, label, extracted, readable: extracted.readable !== false, createdAt: now() };
+    const doc = {
+      id: docId, visitId: visit.id, label, extracted, readable: extracted.readable !== false,
+      readStatus, createdAt: now(),
+    };
     stampDocDate(doc); // works out where this sheet sits on the timeline, once
     store.documents.push(doc);
     save();
-    logEvent("document_added", { visitId: visit.id, readable: doc.readable, dated: !!doc.docDate });
-    return ok(res, { document: publicDoc(doc) });
+    logEvent("document_added", { visitId: visit.id, readable: doc.readable, readStatus, dated: !!doc.docDate });
+    return ok(res, { document: publicDoc(doc), readStatus, readError });
   }
 
   // ---- document image
@@ -2409,7 +2347,7 @@ async function api(req, res, pathname) {
     } else {
       console.log(`\n   Clinicians registered: ${store.clinicians.length}`);
     }
-    console.log(`\n   AI:        ${aiOn() ? "on · " + AI_PROVIDER + " · " + AI_MODEL : "off — set MISTRAL_API_KEY or ANTHROPIC_API_KEY in .env"}`);
+    console.log(`\n   AI:        ${aiOn() ? "on · " + AI.chain.join("  →  ") : "off — set GROQ_API_KEY, MISTRAL_API_KEY or ANTHROPIC_API_KEY in .env"}`);
     console.log(`   SMS:       ${smsProvider() === "console" ? "console (codes print here)" : smsProvider()}`);
     console.log(`   Languages: ${routed.langs + 2} translated · ${routed.added} routing keywords derived`);
     console.log("   Data:      ./data/db.json   (delete the data folder to start over)");

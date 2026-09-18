@@ -81,21 +81,31 @@ With a key, two things become real:
 
 ### Steps
 
-1. Go to **[console.anthropic.com](https://console.anthropic.com)** → sign in → **API keys** →
-   **Create key**. Copy it.
-2. Add a few dollars of credit under **Billing**. A whole hackathon costs very little.
+Two **free** providers are supported, and the app uses both: **Groq** first (fastest), and
+**Mistral** as the fallback if Groq is rate-limited or down. Neither needs a card.
+
+1. **Groq:** go to **[console.groq.com](https://console.groq.com)** → sign up → **API Keys** →
+   **Create API Key**. Copy it.
+2. **Mistral:** go to **[console.mistral.ai](https://console.mistral.ai)** → sign up → choose the
+   free **Experiment** plan → **API keys** → **Create new key**. Copy it.
 3. In this folder, copy `.env.example` to `.env`
    (Windows: `copy .env.example .env` · Mac/Linux: `cp .env.example .env`)
-4. Open `.env` in a text editor. Find this line:
+4. Open `.env` in a text editor and add both lines (one is enough to get going):
    ```
-   # ANTHROPIC_API_KEY=sk-ant-...
-   ```
-   Remove the `#` and paste your key after the `=`:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-your-actual-key-here
+   GROQ_API_KEY=gsk_your-groq-key
+   MISTRAL_API_KEY=your-mistral-key
    ```
 5. Save the file. **Stop the server** (Ctrl+C in the terminal) and **start it again.**
-6. The startup box should now say `AI: on (claude-sonnet-4-5)`.
+6. The startup box should now say
+   `AI: on · groq · qwen/qwen3.6-27b  →  mistral · mistral-large-latest`.
+
+On Vercel, add the same two variables under **Project → Settings → Environment Variables**
+and redeploy.
+
+To see how the providers compare on real-looking documents: `node tools/ai-bench.js`.
+
+(Anthropic is also supported via `ANTHROPIC_API_KEY`, but it needs paid credit and is only
+used if you set that key.)
 
 > Keep `.env` to yourself. Don't commit it, don't screenshot it, don't paste the key into a chat
 > window — including to me. It belongs in that file and nowhere else.
