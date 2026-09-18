@@ -386,5 +386,29 @@ window.TR.te = {
   "All done. Your token is {}": "అయిపోయింది. మీ టోకెన్ {}",
   "Department": "విభాగం",
   "Show this at the desk": "దీన్ని కౌంటర్‌లో చూపించండి",
-  "Print slip": "చీటీని ప్రింట్ చేయండి"
+  "Print slip": "చీటీని ప్రింట్ చేయండి",
+
+  // Sign-in, emergency and document screens — added Sep 2026.
+  "Where is the problem? Touch to show us": "సమస్య ఎక్కడ ఉంది? తాకి చూపించండి",
+  "How much is it troubling you?": "ఇది మిమ్మల్ని ఎంతగా బాధిస్తోంది?",
+  "What makes it better?": "దేనితో ఉపశమనం కలుగుతుంది?",
+  "Let's Get You Started": "మొదలుపెడదాం",
+  "Enter your phone number, we'll send a one-time code to verify it.": "మీ ఫోన్ నంబర్ నమోదు చేయండి, ధృవీకరణ కోసం ఒకసారి కోడ్ పంపుతాము.",
+  "By continuing, you agree to our ": "కొనసాగడం ద్వారా మీరు మా ",
+  "Terms & Conditions": "నిబంధనలు మరియు షరతులు",
+  " and ": " మరియు ",
+  "Privacy Policy": "గోప్యతా విధానం",
+  "Use ABHA or Aadhaar instead": "బదులుగా ABHA లేదా ఆధార్ వాడండి",
+  "We Sent You a Code": "మీకు కోడ్ పంపాము",
+  "Enter the 6-digit code, we've sent to your phone number": "మీ ఫోన్ నంబర్‌కు పంపిన 6 అంకెల కోడ్ నమోదు చేయండి",
+  "Retry in {} Seconds": "{} సెకన్లలో మళ్ళీ ప్రయత్నించండి",
+  "Your case is now marked for immediate attention and is at the top of the clinicians' list. Please stay here.": "మీ కేసు తక్షణ శ్రద్ధ కోసం గుర్తించబడింది మరియు వైద్యుల జాబితాలో పైన ఉంది. దయచేసి ఇక్కడే ఉండండి.",
+  "I pressed this by mistake": "నేను పొరపాటున నొక్కాను",
+  "Automatic reading is switched off on this kiosk (no AI key is configured). Photos will be saved and your doctor will read them.": "ఈ కియోస్క్‌లో పత్రాలు ఆటోమేటిక్‌గా చదవబడవు (AI కీ సెట్ చేయలేదు). ఫోటోలు సేవ్ అవుతాయి, మీ డాక్టర్ వాటిని చదువుతారు.",
+  "Not read automatically — your doctor will see the photo": "ఆటోమేటిక్‌గా చదవలేదు — మీ డాక్టర్ ఫోటో చూస్తారు",
+  "Not read, as you asked": "మీరు కోరినట్లు చదవలేదు",
+  "The photo is not clear enough — retake it, or your doctor will read it": "ఫోటో తగినంత స్పష్టంగా లేదు — మళ్ళీ తీయండి, లేదా మీ డాక్టర్ దాన్ని చదువుతారు",
+  "Reading failed — the photo is saved and your doctor will see it": "చదవడం విఫలమైంది — ఫోటో సేవ్ అయింది, మీ డాక్టర్ దాన్ని చూస్తారు",
+  "That file is not a photo, or could not be opened. Please take a photo with the camera.": "ఈ ఫైల్ ఫోటో కాదు, లేదా తెరవలేకపోయాము. దయచేసి కెమెరాతో ఫోటో తీయండి.",
+  "This paper could not be saved. Please try again.": "ఈ పత్రాన్ని సేవ్ చేయలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి."
 };

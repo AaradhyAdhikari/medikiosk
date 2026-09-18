@@ -386,5 +386,29 @@ window.TR.gu = {
   "All done. Your token is {}": "થઈ ગયું. તમારું ટોકન {} છે",
   "Department": "વિભાગ",
   "Show this at the desk": "આ કાઉન્ટર પર બતાવો",
-  "Print slip": "કાપલી છાપો"
+  "Print slip": "કાપલી છાપો",
+
+  // Sign-in, emergency and document screens — added Sep 2026.
+  "Where is the problem? Touch to show us": "તકલીફ ક્યાં છે? સ્પર્શ કરીને બતાવો",
+  "How much is it troubling you?": "તમને કેટલી તકલીફ થાય છે?",
+  "What makes it better?": "શાનાથી રાહત મળે છે?",
+  "Let's Get You Started": "ચાલો શરૂઆત કરીએ",
+  "Enter your phone number, we'll send a one-time code to verify it.": "તમારો ફોન નંબર લખો, ચકાસણી માટે અમે એક વખતનો કોડ મોકલીશું.",
+  "By continuing, you agree to our ": "આગળ વધીને તમે અમારી ",
+  "Terms & Conditions": "શરતો અને નિયમો",
+  " and ": " અને ",
+  "Privacy Policy": "ગોપનીયતા નીતિ",
+  "Use ABHA or Aadhaar instead": "તેના બદલે ABHA અથવા આધાર વાપરો",
+  "We Sent You a Code": "અમે તમને કોડ મોકલ્યો છે",
+  "Enter the 6-digit code, we've sent to your phone number": "તમારા ફોન નંબર પર મોકલેલો ૬ અંકનો કોડ લખો",
+  "Retry in {} Seconds": "{} સેકંડ પછી ફરી પ્રયત્ન કરો",
+  "Your case is now marked for immediate attention and is at the top of the clinicians' list. Please stay here.": "તમારો કેસ તાત્કાલિક ધ્યાન માટે નોંધાયો છે અને ડૉક્ટરોની યાદીમાં સૌથી ઉપર છે. કૃપા કરીને અહીં જ રહો.",
+  "I pressed this by mistake": "મેં ભૂલથી દબાવ્યું",
+  "Automatic reading is switched off on this kiosk (no AI key is configured). Photos will be saved and your doctor will read them.": "આ કિઓસ્ક પર કાગળ આપમેળે વંચાતા નથી (AI કી સેટ કરેલી નથી). ફોટા સાચવવામાં આવશે અને ડૉક્ટર તે વાંચશે.",
+  "Not read automatically — your doctor will see the photo": "આપમેળે વંચાયું નથી — ડૉક્ટર ફોટો જોશે",
+  "Not read, as you asked": "તમારા કહ્યા મુજબ વાંચ્યું નથી",
+  "The photo is not clear enough — retake it, or your doctor will read it": "ફોટો પૂરતો સ્પષ્ટ નથી — ફરી લો, અથવા ડૉક્ટર તે વાંચશે",
+  "Reading failed — the photo is saved and your doctor will see it": "વાંચી શકાયું નહીં — ફોટો સાચવાયો છે અને ડૉક્ટર તે જોશે",
+  "That file is not a photo, or could not be opened. Please take a photo with the camera.": "આ ફાઇલ ફોટો નથી અથવા ખોલી શકાઈ નથી. કૃપા કરીને કૅમેરાથી ફોટો લો.",
+  "This paper could not be saved. Please try again.": "આ કાગળ સાચવી શકાયો નથી. કૃપા કરીને ફરી પ્રયત્ન કરો."
 };

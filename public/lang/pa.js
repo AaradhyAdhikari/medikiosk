@@ -386,5 +386,29 @@ window.TR.pa = {
   "All done. Your token is {}": "ਹੋ ਗਿਆ. ਤੁਹਾਡਾ ਟੋਕਨ {} ਹੈ",
   "Department": "ਵਿਭਾਗ",
   "Show this at the desk": "ਇਹ ਕਾਊਂਟਰ ਉੱਤੇ ਦਿਖਾਓ",
-  "Print slip": "ਪਰਚੀ ਛਾਪੋ"
+  "Print slip": "ਪਰਚੀ ਛਾਪੋ",
+
+  // Sign-in, emergency and document screens — added Sep 2026.
+  "Where is the problem? Touch to show us": "ਤਕਲੀਫ਼ ਕਿੱਥੇ ਹੈ? ਛੂਹ ਕੇ ਦੱਸੋ",
+  "How much is it troubling you?": "ਤੁਹਾਨੂੰ ਕਿੰਨੀ ਤਕਲੀਫ਼ ਹੋ ਰਹੀ ਹੈ?",
+  "What makes it better?": "ਕਿਸ ਨਾਲ ਆਰਾਮ ਮਿਲਦਾ ਹੈ?",
+  "Let's Get You Started": "ਆਓ ਸ਼ੁਰੂ ਕਰੀਏ",
+  "Enter your phone number, we'll send a one-time code to verify it.": "ਆਪਣਾ ਫ਼ੋਨ ਨੰਬਰ ਲਿਖੋ, ਤਸਦੀਕ ਲਈ ਅਸੀਂ ਇੱਕ ਵਾਰ ਦਾ ਕੋਡ ਭੇਜਾਂਗੇ।",
+  "By continuing, you agree to our ": "ਅੱਗੇ ਵਧ ਕੇ ਤੁਸੀਂ ਸਾਡੀਆਂ ",
+  "Terms & Conditions": "ਸ਼ਰਤਾਂ ਅਤੇ ਨਿਯਮ",
+  " and ": " ਅਤੇ ",
+  "Privacy Policy": "ਪਰਦੇਦਾਰੀ ਨੀਤੀ",
+  "Use ABHA or Aadhaar instead": "ਇਸ ਦੀ ਬਜਾਏ ABHA ਜਾਂ ਆਧਾਰ ਵਰਤੋ",
+  "We Sent You a Code": "ਅਸੀਂ ਤੁਹਾਨੂੰ ਕੋਡ ਭੇਜਿਆ ਹੈ",
+  "Enter the 6-digit code, we've sent to your phone number": "ਤੁਹਾਡੇ ਫ਼ੋਨ ਨੰਬਰ ਉੱਤੇ ਭੇਜਿਆ 6 ਅੰਕਾਂ ਦਾ ਕੋਡ ਲਿਖੋ",
+  "Retry in {} Seconds": "{} ਸਕਿੰਟਾਂ ਬਾਅਦ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
+  "Your case is now marked for immediate attention and is at the top of the clinicians' list. Please stay here.": "ਤੁਹਾਡਾ ਕੇਸ ਤੁਰੰਤ ਧਿਆਨ ਲਈ ਦਰਜ ਹੋ ਗਿਆ ਹੈ ਅਤੇ ਡਾਕਟਰਾਂ ਦੀ ਸੂਚੀ ਵਿੱਚ ਸਭ ਤੋਂ ਉੱਪਰ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਇੱਥੇ ਹੀ ਰੁਕੋ।",
+  "I pressed this by mistake": "ਮੈਂ ਗ਼ਲਤੀ ਨਾਲ ਦਬਾ ਦਿੱਤਾ",
+  "Automatic reading is switched off on this kiosk (no AI key is configured). Photos will be saved and your doctor will read them.": "ਇਸ ਕਿਓਸਕ ਉੱਤੇ ਕਾਗ਼ਜ਼ ਆਪਣੇ ਆਪ ਨਹੀਂ ਪੜ੍ਹੇ ਜਾਂਦੇ (AI ਕੁੰਜੀ ਸੈੱਟ ਨਹੀਂ ਹੈ)। ਫ਼ੋਟੋਆਂ ਸੰਭਾਲੀਆਂ ਜਾਣਗੀਆਂ ਅਤੇ ਡਾਕਟਰ ਉਨ੍ਹਾਂ ਨੂੰ ਪੜ੍ਹਨਗੇ।",
+  "Not read automatically — your doctor will see the photo": "ਆਪਣੇ ਆਪ ਨਹੀਂ ਪੜ੍ਹਿਆ ਗਿਆ — ਡਾਕਟਰ ਫ਼ੋਟੋ ਦੇਖਣਗੇ",
+  "Not read, as you asked": "ਤੁਹਾਡੇ ਕਹਿਣ ਮੁਤਾਬਕ ਨਹੀਂ ਪੜ੍ਹਿਆ ਗਿਆ",
+  "The photo is not clear enough — retake it, or your doctor will read it": "ਫ਼ੋਟੋ ਕਾਫ਼ੀ ਸਾਫ਼ ਨਹੀਂ ਹੈ — ਮੁੜ ਖਿੱਚੋ, ਜਾਂ ਡਾਕਟਰ ਇਸ ਨੂੰ ਪੜ੍ਹਨਗੇ",
+  "Reading failed — the photo is saved and your doctor will see it": "ਪੜ੍ਹਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ — ਫ਼ੋਟੋ ਸੰਭਾਲੀ ਗਈ ਹੈ ਅਤੇ ਡਾਕਟਰ ਇਸ ਨੂੰ ਦੇਖਣਗੇ",
+  "That file is not a photo, or could not be opened. Please take a photo with the camera.": "ਇਹ ਫ਼ਾਈਲ ਫ਼ੋਟੋ ਨਹੀਂ ਹੈ ਜਾਂ ਖੁੱਲ੍ਹ ਨਹੀਂ ਸਕੀ। ਕਿਰਪਾ ਕਰਕੇ ਕੈਮਰੇ ਨਾਲ ਫ਼ੋਟੋ ਖਿੱਚੋ।",
+  "This paper could not be saved. Please try again.": "ਇਹ ਕਾਗ਼ਜ਼ ਸੰਭਾਲਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।"
 };

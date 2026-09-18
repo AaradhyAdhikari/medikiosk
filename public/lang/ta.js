@@ -386,5 +386,29 @@ window.TR.ta = {
   "All done. Your token is {}": "முடிந்தது. உங்கள் டோக்கன் {}",
   "Department": "பிரிவு",
   "Show this at the desk": "இதை பதிவு மேசையில் காட்டுங்கள்",
-  "Print slip": "சீட்டை அச்சிடுங்கள்"
+  "Print slip": "சீட்டை அச்சிடுங்கள்",
+
+  // Sign-in, emergency and document screens — added Sep 2026.
+  "Where is the problem? Touch to show us": "பிரச்சனை எங்கே? தொட்டுக் காட்டுங்கள்",
+  "How much is it troubling you?": "இது உங்களை எவ்வளவு தொந்தரவு செய்கிறது?",
+  "What makes it better?": "எதனால் நிவாரணம் கிடைக்கிறது?",
+  "Let's Get You Started": "தொடங்குவோம்",
+  "Enter your phone number, we'll send a one-time code to verify it.": "உங்கள் தொலைபேசி எண்ணை உள்ளிடுங்கள், சரிபார்க்க ஒருமுறைக் குறியீட்டை அனுப்புவோம்.",
+  "By continuing, you agree to our ": "தொடர்வதன் மூலம் நீங்கள் எங்கள் ",
+  "Terms & Conditions": "விதிமுறைகள் மற்றும் நிபந்தனைகள்",
+  " and ": " மற்றும் ",
+  "Privacy Policy": "தனியுரிமைக் கொள்கை",
+  "Use ABHA or Aadhaar instead": "அதற்குப் பதிலாக ABHA அல்லது ஆதார் பயன்படுத்துங்கள்",
+  "We Sent You a Code": "உங்களுக்கு ஒரு குறியீட்டை அனுப்பியுள்ளோம்",
+  "Enter the 6-digit code, we've sent to your phone number": "உங்கள் தொலைபேசி எண்ணுக்கு அனுப்பிய 6 இலக்கக் குறியீட்டை உள்ளிடுங்கள்",
+  "Retry in {} Seconds": "{} வினாடிகளில் மீண்டும் முயற்சிக்கவும்",
+  "Your case is now marked for immediate attention and is at the top of the clinicians' list. Please stay here.": "உங்கள் வழக்கு உடனடி கவனத்திற்குக் குறிக்கப்பட்டு, மருத்துவர்களின் பட்டியலில் முதலிடத்தில் உள்ளது. தயவுசெய்து இங்கேயே இருங்கள்.",
+  "I pressed this by mistake": "நான் தவறுதலாக அழுத்திவிட்டேன்",
+  "Automatic reading is switched off on this kiosk (no AI key is configured). Photos will be saved and your doctor will read them.": "இந்த கியோஸ்கில் ஆவணங்கள் தானாகப் படிக்கப்படுவதில்லை (AI சாவி அமைக்கப்படவில்லை). புகைப்படங்கள் சேமிக்கப்படும், உங்கள் மருத்துவர் அவற்றைப் படிப்பார்.",
+  "Not read automatically — your doctor will see the photo": "தானாகப் படிக்கப்படவில்லை — உங்கள் மருத்துவர் புகைப்படத்தைப் பார்ப்பார்",
+  "Not read, as you asked": "நீங்கள் கேட்டபடி படிக்கப்படவில்லை",
+  "The photo is not clear enough — retake it, or your doctor will read it": "புகைப்படம் போதுமான தெளிவாக இல்லை — மீண்டும் எடுங்கள், அல்லது உங்கள் மருத்துவர் அதைப் படிப்பார்",
+  "Reading failed — the photo is saved and your doctor will see it": "படிக்க முடியவில்லை — புகைப்படம் சேமிக்கப்பட்டது, உங்கள் மருத்துவர் அதைப் பார்ப்பார்",
+  "That file is not a photo, or could not be opened. Please take a photo with the camera.": "இந்தக் கோப்பு புகைப்படம் அல்ல, அல்லது திறக்க முடியவில்லை. தயவுசெய்து கேமராவால் புகைப்படம் எடுங்கள்.",
+  "This paper could not be saved. Please try again.": "இந்த ஆவணத்தைச் சேமிக்க முடியவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்."
 };
