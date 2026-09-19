@@ -188,9 +188,36 @@ function writeLocal() {
   }
 }
 
+/* On a serverless host the response must not go out before the write has
+   landed: the function may be frozen the moment it answers, and a write still
+   in flight is a write that may never happen. send() waits on this. */
+let pendingPersist = null;
 function persist() {
-  if (firebaseDb) firebaseDb.ref('/').set(store).catch(e => console.error("Firebase save error:", e.message));
+  if (firebaseDb) {
+    const p = firebaseDb.ref('/').set(store).catch(e => console.error("Firebase save error:", e.message));
+    pendingPersist = p.finally(() => { if (pendingPersist === p) pendingPersist = null; });
+  }
   writeLocal();
+}
+
+/* Several serverless instances serve the same kiosk and console. Each loaded
+   the store once at cold start and saved the WHOLE of it back on every
+   change, so an instance that had not seen the latest visit would overwrite
+   it with its stale copy the next time anything was saved on it — and a
+   doctor's request routed to that instance found no visit at all. Reading
+   the store afresh at the start of every API request makes every instance
+   act on the current state; the whole database is small enough that this is
+   one round trip. */
+async function refreshStore() {
+  if (!SERVERLESS || !firebaseDb) return;
+  try {
+    const snap = await firebaseDb.ref('/').once('value');
+    const fresh = { ...EMPTY, ...(snap.val() || {}) };
+    for (const k in EMPTY) if (Array.isArray(EMPTY[k])) fresh[k] = fresh[k] || [];
+    store = fresh;
+  } catch (e) {
+    console.warn("  store refresh failed, serving what this instance has:", e.message);
+  }
 }
 
 function save() {
@@ -1412,6 +1439,11 @@ function send(res, code, body, headers) {
     body = JSON.stringify(body);
   }
   res.writeHead(code, h);
+  if (SERVERLESS && pendingPersist) {
+    const finish = () => res.end(body);
+    pendingPersist.then(finish, finish);
+    return;
+  }
   res.end(body);
 }
 const ok = (res, obj) => send(res, 200, obj);
@@ -2532,17 +2564,19 @@ async function api(req, res, pathname) {
        without a clinician login. */
     const checkin = pathname.match(/^\/c\/([\w-]+)$/);
     if (checkin) {
+      return refreshStore().then(() => {
       // Accept the short code or the raw visit id, so a slip printed before
       // this existed still scans.
       const key = checkin[1];
       const found = store.visits.find((v) => v.checkinCode === key.toUpperCase()) ||
                     store.visits.find((v) => v.id === key);
       res.writeHead(302, { location: "/doctor?visit=" + encodeURIComponent(found ? found.id : key) });
-      return res.end();
+      res.end();
+      });
     }
 
     if (pathname.startsWith("/api/")) {
-      api(req, res, pathname).catch((e) => {
+      refreshStore().then(() => api(req, res, pathname)).catch((e) => {
         console.error("  ✗", e.message);
         if (!res.headersSent) bad(res, 500, e.message || "Server error");
       });
