@@ -13,7 +13,10 @@
 const PROVIDERS = {
   groq: {
     keyVar: "GROQ_API_KEY",
-    model: "qwen/qwen3.6-27b",                 // Groq's current vision model (JSON mode, 5 images/request)
+    model: "qwen/qwen3.8-27b",                 // Groq's current vision model (JSON mode, 3 images/request)
+    // Groq retires models often. When the one above answers "does not
+    // exist", these are tried in turn before the provider is given up on.
+    alsoTry: ["qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct"],
     url: "https://api.groq.com/openai/v1/chat/completions",
     style: "openai",
     label: "Groq",
@@ -104,7 +107,28 @@ function makeClient({ provider, key, model, timeoutMs, log }) {
      sits on "Reading…" and a serverless host kills the function underneath
      it, which the patient sees as nothing at all. Bound every call so the
      failure is ours to report. */
+  /* "Model does not exist" is a configuration problem, not a request problem;
+     the next model on the list may well exist. Everything else is thrown. */
+  const goneModel = (e) => /model.{0,40}(does not exist|not found|decommissioned|deprecated|no longer)/i.test(String(e && e.message));
+  let activeModel = model;
+
   async function ask(content, maxTokens) {
+    const candidates = [activeModel].concat((spec.alsoTry || []).filter((m) => m !== activeModel));
+    for (let i = 0; i < candidates.length; i++) {
+      try {
+        const text = await askWith(candidates[i], content, maxTokens);
+        if (candidates[i] !== activeModel) {
+          warn("  " + spec.label + ": model " + activeModel + " is gone; using " + candidates[i] + " from now on");
+          activeModel = candidates[i];
+        }
+        return text;
+      } catch (e) {
+        if (!goneModel(e) || i === candidates.length - 1) throw e;
+      }
+    }
+  }
+
+  async function askWith(model, content, maxTokens) {
     const signal = AbortSignal.timeout(timeoutMs || 90000);
     if (spec.style === "anthropic") {
       const res = await fetch(spec.url, {
@@ -169,7 +193,8 @@ function makeClient({ provider, key, model, timeoutMs, log }) {
   }
 
   return {
-    provider, model, label: spec.label,
+    provider, label: spec.label,
+    get model() { return activeModel; },
     on: Boolean(key),
     ask, readDocument, parseJson,
   };

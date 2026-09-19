@@ -97,7 +97,7 @@ Two **free** providers are supported, and the app uses both: **Groq** first (fas
    ```
 5. Save the file. **Stop the server** (Ctrl+C in the terminal) and **start it again.**
 6. The startup box should now say
-   `AI: on · groq · qwen/qwen3.6-27b  →  mistral · mistral-large-latest`.
+   `AI: on · groq · qwen/qwen3.8-27b  →  mistral · mistral-large-latest`.
 
 On Vercel, add the same two variables under **Project → Settings → Environment Variables**
 and redeploy.
