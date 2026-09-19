@@ -410,5 +410,24 @@ window.TR.gu = {
   "The photo is not clear enough — retake it, or your doctor will read it": "ફોટો પૂરતો સ્પષ્ટ નથી — ફરી લો, અથવા ડૉક્ટર તે વાંચશે",
   "Reading failed — the photo is saved and your doctor will see it": "વાંચી શકાયું નહીં — ફોટો સાચવાયો છે અને ડૉક્ટર તે જોશે",
   "That file is not a photo, or could not be opened. Please take a photo with the camera.": "આ ફાઇલ ફોટો નથી અથવા ખોલી શકાઈ નથી. કૃપા કરીને કૅમેરાથી ફોટો લો.",
-  "This paper could not be saved. Please try again.": "આ કાગળ સાચવી શકાયો નથી. કૃપા કરીને ફરી પ્રયત્ન કરો."
+  "This paper could not be saved. Please try again.": "આ કાગળ સાચવી શકાયો નથી. કૃપા કરીને ફરી પ્રયત્ન કરો.",
+
+  // Patient recap, audio-guided mode, idle prompt, consent withdrawal — Sep 2026.
+  "In your language": "તમારી ભાષામાં",
+  "Listen": "સાંભળો",
+  "Here is what has been recorded.": "જે નોંધાયું છે તે આ છે.",
+  "Height {} cm, weight {} kg.": "ઊંચાઈ {} સેન્ટિમીટર, વજન {} કિલો.",
+  "{} of your papers have been saved.": "તમારા {} કાગળ સાચવવામાં આવ્યા છે.",
+  "The doctor will now go through this with you.": "હવે ડૉક્ટર આ બધું તમારી સાથે જોશે.",
+  "Please check that this is correct. Tap 'Listen' to hear it in your language.": "કૃપા કરીને તપાસો કે આ સાચું છે. તમારી ભાષામાં સાંભળવા 'સાંભળો' દબાવો.",
+  "Read every screen aloud": "દરેક સ્ક્રીન વાંચી સંભળાવો",
+  "Each new screen is read out by itself — for those who cannot see it well": "દરેક નવી સ્ક્રીન આપમેળે વંચાશે — જેમને બરાબર દેખાતું નથી તેમના માટે",
+  "Are you still there?": "શું તમે હજી અહીં છો?",
+  "This screen will clear itself in half a minute so nobody else sees your details.": "તમારી માહિતી બીજું કોઈ ન જુએ તે માટે આ સ્ક્રીન અડધી મિનિટમાં આપમેળે સાફ થઈ જશે.",
+  "Yes, I am here": "હા, હું અહીં જ છું",
+  "You have withdrawn consent for this visit — no doctor can open it now.": "તમે આ મુલાકાતની સંમતિ પાછી ખેંચી છે — હવે કોઈ ડૉક્ટર તેને ખોલી શકશે નહીં.",
+  "Allow again": "ફરીથી મંજૂરી આપો",
+  "Withdraw consent for this visit": "આ મુલાકાતની સંમતિ પાછી ખેંચો",
+  "Consent withdrawn. No doctor can open this visit now.": "સંમતિ પાછી ખેંચાઈ. હવે કોઈ ડૉક્ટર આ મુલાકાત ખોલી શકશે નહીં.",
+  "Consent given again.": "સંમતિ ફરીથી આપવામાં આવી."
 };

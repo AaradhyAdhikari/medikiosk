@@ -203,9 +203,52 @@ function startQueue() {
   D.timer = setInterval(function () { if (D.view === "queue") loadQueue(); }, 4000);
 }
 
+/* An emergency that arrives while the clinician is looking at another case
+   — or at nothing — has to make a noise. The queue is polled every four
+   seconds; a red-flag visit that was not there last time gets a tone and a
+   banner naming the token, whichever view is open. The first load after
+   sign-in seeds the set silently: existing emergencies are already on the
+   list, and a chorus on login teaches people to ignore the sound. */
+var seenEmergencies = null;
+function noticeNewEmergencies(rows) {
+  var flagged = (rows || []).filter(function (v) { return v.redFlag && v.status !== "ASSESSED"; });
+  if (seenEmergencies === null) { seenEmergencies = {}; flagged.forEach(function (v) { seenEmergencies[v.id] = 1; }); return; }
+  var fresh = flagged.filter(function (v) { return !seenEmergencies[v.id]; });
+  flagged.forEach(function (v) { seenEmergencies[v.id] = 1; });
+  if (!fresh.length) return;
+  alertTone();
+  var box = document.getElementById("emgbanner");
+  if (!box) { box = document.createElement("div"); box.id = "emgbanner"; box.className = "emgbanner"; document.body.appendChild(box); }
+  box.innerHTML = fresh.map(function (v) {
+    return '<button data-open="' + esc(v.id) + '">' + ICON("alert", 22) + " <b>EMERGENCY</b> · token " + esc(v.token) +
+      " · " + esc((v.patient && v.patient.name) || "Patient") + " — " + esc(v.chiefComplaint || "") +
+      '<span style="margin-left:auto;font-weight:600">Open →</span></button>';
+  }).join("") + '<button class="dismiss" data-dismiss="1">Dismiss</button>';
+  box.onclick = function (e) {
+    var o = e.target.closest("[data-open]");
+    if (o) { box.remove(); openVisit(o.dataset.open); return; }
+    if (e.target.closest("[data-dismiss]")) box.remove();
+  };
+  setTimeout(function () { if (box.parentNode) box.remove(); }, 60000);
+}
+function alertTone() {
+  try {
+    var ac = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.35, 0.7].forEach(function (t) {
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.25);
+      o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.3);
+    });
+  } catch (e) { /* no audio on this machine; the banner still shows */ }
+}
+
 async function loadQueue() {
   try {
     D.data = await api("/api/queue" + (D.showAll ? "?all=1" : ""));
+    noticeNewEmergencies(D.data && D.data.visits);
     if (D.view === "queue") renderQueue();
   } catch (e) {
     if (String(e.message).indexOf("Sign in") > -1) { clearInterval(D.timer); D.clinician = null; renderLogin(); }
@@ -215,7 +258,8 @@ async function loadQueue() {
 function badgeFor(v) {
   if (v.status === "ASSESSED") return '<span class="badge jade">' + ICON("check",12) + ' Assessed</span>';
   if (v.status === "IN_CONSULT") return '<span class="badge haldi">In consultation</span>';
-  if (v.redFlag) return '<span class="badge red big">' + ICON("alert", 15) + " EMERGENCY</span>";
+  if (v.redFlag) return '<span class="badge red big">' + ICON("alert", 15) + " EMERGENCY" +
+    (v.status === "IN_PROGRESS" ? " · still at the kiosk" : "") + "</span>";
   return '<span class="badge grey">Waiting</span>';
 }
 
@@ -514,6 +558,26 @@ function renderCase() {
           "</p></div>"
         : "") +
 
+      /* Possible interactions between what the papers say and what the
+         patient says they take. Rule-based, narrow, and worded as "worth a
+         look" — the physician decides, as with everything else on this page. */
+      (s.interactions && s.interactions.length
+        ? '<div class="alert ixn" style="margin-bottom:16px">' +
+          '<div class="emghd">' + ICON("alert", 22) + "<b>POSSIBLE DRUG INTERACTIONS — for your attention</b></div>" +
+          '<ul style="margin:8px 0 0;padding-left:22px;font-size:15.5px;line-height:1.55">' +
+          s.interactions.map(function (i) {
+            return "<li><b>" + esc(i.a.matched) + "</b> + <b>" + esc(i.b.matched) + "</b>" +
+              '<span class="badge ' + (i.severity === "high" ? "vermilion" : i.severity === "moderate" ? "haldi" : "grey") +
+              '" style="margin-left:8px;padding:2px 8px;font-size:11px">' + esc(i.severity) + "</span>" +
+              "<br><span style=\"font-weight:500\">" + esc(i.note) + "</span>" +
+              '<br><small style="color:var(--muted)">' + esc(i.a.matched) + ": " + esc(i.a.where.join(", ")) +
+              " · " + esc(i.b.matched) + ": " + esc(i.b.where.join(", ")) + "</small></li>";
+          }).join("") + "</ul>" +
+          '<p style="margin:10px 0 0;font-size:13px;color:var(--muted)">' +
+            "From the scanned papers and what the patient reported. A short curated list of well-known pairs, not a formulary check." +
+          "</p></div>"
+        : "") +
+
       '<div class="split"><div>' +
         '<div class="panel"><h3>Structured history · AI draft, you verify</h3>' +
           (s.narrative && !D.amending
@@ -560,7 +624,9 @@ function renderCase() {
                   '<button class="btn ghost" id="amend" style="font-size:16px;padding:13px">Amend</button></div>') +
 
           '<div class="row" style="margin-top:10px"><button class="btn ghost" id="emr" style="font-size:15px;padding:11px"' +
-            (v.pushedToEmr ? " disabled" : "") + ">" + (v.pushedToEmr ? "Pushed via FHIR \u00b7 done" : "Push to hospital EMR") + "</button></div>" +
+            (v.pushedToEmr ? " disabled" : "") + ">" + (v.pushedToEmr ? "Pushed via FHIR \u00b7 done" : "Push to hospital EMR") + "</button>" +
+            '<a class="btn ghost" style="font-size:15px;padding:11px;text-decoration:none" href="/api/visits/' + esc(v.id) + '/fhir" download>' +
+              "Download FHIR R4 bundle</a></div>" +
           '<p style="font-size:12.5px;color:var(--muted);margin:10px 0 0">' +
             (s.generated === "ai" ? "Generated from the patient's kiosk interview." :
              s.generated === "example" ? "Example patient, loaded deliberately — not a real intake." :

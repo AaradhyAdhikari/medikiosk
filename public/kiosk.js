@@ -30,7 +30,7 @@ var S = {
 /* ── accessibility mode ─────────────────────────────
    Named in the SIH26047 architecture table. Persisted per kiosk so a large
    patient population does not have to rediscover it every visit. */
-var A11Y = { large: false, contrast: false };
+var A11Y = { large: false, contrast: false, audio: false };
 try {
   A11Y = JSON.parse(localStorage.getItem("mk_a11y") || "null") || A11Y;
 } catch (e) {}
@@ -286,6 +286,46 @@ function stopListen() {
   recOn = false; 
 }
 
+/* ── idle timeout ───────────────────────────────────
+   SIH26047 Module D: "temporary session data is cleared immediately after
+   submission". A patient who walks away mid-interview leaves their history
+   on a public screen, which is the same failure a step earlier. After a
+   quiet stretch the kiosk asks whether anyone is still there; if nobody
+   answers, everything on this screen is dropped and it returns to the
+   language chooser. Signed-in records are never touched — they live on the
+   server behind the patient's own login. */
+var IDLE_ASK_MS = 90000, IDLE_CLEAR_MS = 30000;
+var idleT = null, idleClearT = null, idleBox = null;
+function touched() {
+  clearTimeout(idleT);
+  if (idleBox) { idleBox.remove(); idleBox = null; clearTimeout(idleClearT); }
+  // The language screen holds nothing; there is nothing to protect.
+  if (S.screen === "lang" || S.screen === "done") return;
+  idleT = setTimeout(askStillThere, IDLE_ASK_MS);
+}
+function askStillThere() {
+  if (idleBox) return;
+  idleBox = document.createElement("div");
+  idleBox.className = "idlebox";
+  idleBox.innerHTML = '<div class="idlecard"><h2>' + esc(L("क्या आप अभी भी यहाँ हैं?", "Are you still there?")) + "</h2>" +
+    "<p>" + esc(L("आधे मिनट में यह स्क्रीन अपने-आप साफ़ हो जाएगी ताकि आपकी जानकारी कोई और न देखे।",
+      "This screen will clear itself in half a minute so nobody else sees your details.")) + "</p>" +
+    '<button class="btn" id="idle-yes">' + esc(L("हाँ, मैं यहीं हूँ", "Yes, I am here")) + "</button></div>";
+  document.body.appendChild(idleBox);
+  document.getElementById("idle-yes").onclick = touched;
+  speak(L("क्या आप अभी भी यहाँ हैं?", "Are you still there?"));
+  idleClearT = setTimeout(clearSession, IDLE_CLEAR_MS);
+}
+function clearSession() {
+  hush(); stopListen();
+  // Everything typed or said this session, gone. The page reload is the
+  // simplest guarantee that no variable survives.
+  location.href = "/";
+}
+["pointerdown", "keydown", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { touched(); }, true);   // any touch at all means someone is there
+});
+
 /* ── image downscale ────────────────────────────────── */
 
 function shrink(file, cb) {
@@ -314,7 +354,7 @@ function shrink(file, cb) {
    voice sends what it reads to an outside service and that promise holds. */
 var SPEAK_SKIP = ".q-en, .eyebrow, .rail, .steps, .glyph, .transcript, .field, .summary-sec, .dsec, .dline, .dstat, " +
   ".thumbdate, .thumbnote, .docthumb b, [aria-hidden=true], svg, script, style";
-var SPEAK_PICK = "h1, h2, h3, p, .notice, .chip, .faces button, .flabel, label";
+var SPEAK_PICK = "h1, h2, h3, p, .notice, .chip, .faces button, .flabel, label, .consent-card";
 function spokenText(el) {
   // The element's text with the decorative and private parts left out —
   // a language chip says "हिन्दी Hindi", not "अ हिन्दी Hindi".
@@ -472,7 +512,16 @@ function render() {
     a11y: scA11y,
     signin: scSignin, account: scAccount, accountdone: scAccountDone, dash: scDash,
   })[S.screen]();
+
+  /* Audio-guided mode (SIH26047 accessibility table): every screen is read
+     out as it appears, not only the questions. Screens that already speak
+     their own line are left alone, or the two readings would overlap. */
+  if (A11Y.audio && !SPEAKS_ITSELF[S.screen] && canSpeak()) {
+    setTimeout(function () { if (!ttsAudio && !(VOICE_OUT && window.speechSynthesis.speaking)) speak(screenText()); }, 350);
+  }
+  touched();   // a new screen is activity, for the idle timer
 }
+var SPEAKS_ITSELF = { q: 1, red: 1, review: 1, done: 1, accountdone: 1 };
 
 function scLang() {
   // Only languages the interview is genuinely translated into are selectable.
@@ -534,6 +583,12 @@ function scA11y() {
       '<b style="font-size:17px;display:block">' + L("गहरा रंग-भेद", "High contrast") + "</b>" +
       '<small style="font-size:13.5px;color:var(--muted);display:block;margin-top:2px">' +
       L("काले-सफ़ेद में, मोटी लकीरों के साथ", "Black and white, with heavier outlines") +
+      "</small></span><span class=\"toggle\"></span></button>" +
+    '<button class="consent-card' + (A11Y.audio ? " on" : "") + '" data-t="audio">' +
+      '<span class="cic">' + ICON("speaker", 26) + '</span><span style="flex:1">' +
+      '<b style="font-size:17px;display:block">' + L("हर स्क्रीन बोलकर सुनाएँ", "Read every screen aloud") + "</b>" +
+      '<small style="font-size:13.5px;color:var(--muted);display:block;margin-top:2px">' +
+      L("हर नई स्क्रीन अपने-आप पढ़ी जाएगी — देख न पाने वालों के लिए", "Each new screen is read out by itself — for those who cannot see it well") +
       "</small></span><span class=\"toggle\"></span></button>" +
     '<div class="notice jade" style="margin-top:14px">' + ICON("speaker",18) + " " +
       L("हर स्क्रीन पर ऊपर वाला बटन दबाकर सुन सकती हैं।", "The speaker button at the top reads any screen aloud.") + "</div>";
@@ -939,6 +994,17 @@ function scDash() {
                   : "") +
                 '<p class="dnote">' + L("यह रिकॉर्ड सिर्फ़ पढ़ने के लिए है। कुछ ग़लत लगे तो डॉक्टर या कर्मचारी को बताइए।",
                   "This record is read-only. If something looks wrong, tell your doctor or the staff.") + "</p>" +
+                /* Revocable consent (DPDP Act 2023, ABDM consent framework):
+                   the patient can pull this visit back from every clinician,
+                   and give it again. What they see here says which it is. */
+                (v.consentWithdrawnAt
+                  ? '<div class="notice" style="margin-top:10px">' + ICON("lock", 17) + " " +
+                      esc(L("आपने इस विज़िट की सहमति वापस ले ली है — अब कोई डॉक्टर इसे नहीं खोल सकता।",
+                        "You have withdrawn consent for this visit — no doctor can open it now.")) + "</div>" +
+                    '<button class="btn ghost consentbtn" data-consent="grant" data-v="' + esc(v.id) + '">' +
+                      esc(L("दोबारा अनुमति दें", "Allow again")) + "</button>"
+                  : '<button class="btn ghost consentbtn" data-consent="withdraw" data-v="' + esc(v.id) + '">' + ICON("lock", 18) + " " +
+                      esc(L("इस विज़िट की सहमति वापस लें", "Withdraw consent for this visit")) + "</button>") +
               "</div>"
             : "") +
         "</div>";
@@ -977,7 +1043,21 @@ function scDash() {
   foot.innerHTML = '<button class="btn" id="new">' + L("नई विज़िट शुरू करें", "Start a new visit") + "</button>" +
     '<button class="btn ghost" id="out">' + L("बाहर निकलें", "Sign out") + "</button>";
 
-  body.onclick = function (e) {
+  body.onclick = async function (e) {
+    var c = e.target.closest("[data-consent]");
+    if (c) {
+      c.disabled = true;
+      try {
+        var r = await api("/api/visits/" + c.dataset.v + "/consent", { withdraw: c.dataset.consent === "withdraw" });
+        var v = visits.find(function (x) { return x.id === c.dataset.v; });
+        if (v) v.consentWithdrawnAt = r.visit.consentWithdrawnAt;
+        speak(c.dataset.consent === "withdraw"
+          ? L("सहमति वापस ले ली गई। अब कोई डॉक्टर यह विज़िट नहीं खोल सकता।", "Consent withdrawn. No doctor can open this visit now.")
+          : L("अनुमति दोबारा दे दी गई।", "Consent given again."));
+      } catch (err) { S.error = err.message; }
+      render();
+      return;
+    }
     var b = e.target.closest("[data-v]"); if (!b) return;
     S.openVisit = S.openVisit === b.dataset.v ? null : b.dataset.v;
     render();
@@ -1223,6 +1303,9 @@ function scConsent() {
     b.classList.toggle("on", S.consent[k]);
   };
   document.getElementById("nx").onclick = function () { go("visit"); };
+  // Module D asks for consent "with audio explanation for low-literacy
+  // patients": each permission and what it means, read out as the screen opens.
+  if (canSpeak()) setTimeout(function () { speak(screenText()); }, 300);
   document.getElementById("bk").onclick = function () {
     // Consent is now reachable from the dashboard and from account setup as
     // well as straight off the code screen, so "back" has to mean the screen
@@ -1728,15 +1811,48 @@ function scThink() {
       L("जवाब और रिपोर्ट जोड़ी जा रही हैं…", "Combining your answers and your reports…") + "</span></div></div>";
 }
 
+/* What the patient hears back, in their own language. The model writes it
+   when the AI is on (summary.forPatient). Without the AI — no key, or the
+   call failed — it is assembled here from the answers themselves, which the
+   kiosk already holds in the patient's language: every chip label was
+   translated before they tapped it. Either way it is a plain recap of what
+   was recorded, never the physician's assessment. */
+function patientRecap() {
+  if (S.summary && S.summary.forPatient) return String(S.summary.forPatient);
+  var qs = questions(), parts = [];
+  parts.push(L("आपने जो बताया, वह दर्ज कर लिया गया है।", "Here is what has been recorded."));
+  qs.forEach(function (q) {
+    if (!hasAns(q) || q.kind === "measure") return;
+    var v = S.answers[q.id];
+    var ans = Array.isArray(v) ? v.join(", ") : (v || "");
+    var own = String(S.answers["_other_" + q.id] || "").trim();
+    var a = [ans, own].filter(Boolean).join(" — ");
+    if (a) parts.push(L(q.hi, q.en).replace(/[?？]\s*$/, "") + ": " + a + ".");
+  });
+  if (S.heightCm && S.weightKg) parts.push(L("लंबाई {} सेंटीमीटर, वज़न {} किलो।", "Height {} cm, weight {} kg.").replace("{}", S.heightCm).replace("{}", S.weightKg));
+  if (S.docs && S.docs.length) parts.push(LX("आपके {} काग़ज़ सेव किए गए हैं।", "{} of your papers have been saved.", S.docs.length));
+  parts.push(L("अब डॉक्टर आपके साथ यह सब देखेंगे।", "The doctor will now go through this with you."));
+  return parts.join(" ");
+}
+
 function scReview() {
   var s = S.summary || {};
   function sec(t, v) { return v ? '<div class="summary-sec"><h4>' + t + "</h4><p>" + esc(v) + "</p></div>" : ""; }
+  var recap = patientRecap();
   body.innerHTML = '<span class="eyebrow">' + L("जाँच लीजिए","Check this") + "</span>" +
     '<h1 class="q">' + L("क्या यह सही है?", "Is this right?") + "</h1>" +
     '<p class="q-en">' + L("यही जानकारी डॉक्टर पढ़ेंगे। कुछ ग़लत हो तो बदल सकते हैं।",
       "This is what your doctor will read. Change anything that is wrong.") + "</p>" +
     (S.error ? '<div class="notice" style="margin-bottom:12px">' + esc(S.error) + "</div>" : "") +
     (S.notice ? '<div class="notice" style="margin-bottom:12px">' + esc(S.notice) + "</div>" : "") +
+    /* The patient's own copy, first and in their language, with a button
+       that reads it out. It is deliberately not part of the automatic
+       screen read: it is spoken when they ask, so a queue does not overhear
+       a history nobody chose to share. */
+    '<div class="summary-sec forpatient"><h4>' + L("आपकी भाषा में","In your language") + "</h4>" +
+      '<p id="recap">' + esc(recap) + "</p>" +
+      '<button class="btn ghost listen" id="listen">' + ICON("speaker", 20) + " " + L("सुनिए","Listen") + "</button>" +
+    "</div>" +
     sec(L("मुख्य तकलीफ़","Main problem"), s.chiefComplaint) +
     sec(L("विवरण","Details"), s.hpi) +
     sec(L("पुरानी बीमारियाँ","Existing conditions"), s.pastHistory) +
@@ -1759,7 +1875,15 @@ function scReview() {
     '<button class="btn ghost" id="ed">' + L("कुछ बदलना है","I need to change something") + "</button>";
   document.getElementById("ok").onclick = function () { go("done"); };
   document.getElementById("ed").onclick = function () { S.step = 0; go("q"); };
-  speak(L("कृपया जाँच लीजिए कि यह सही है।", "Please check that this is correct."));
+  var listen = document.getElementById("listen");
+  listen.onclick = function () {
+    // Tapping while it is being read stops it; the button says which.
+    if (ttsAudio || (VOICE_OUT && window.speechSynthesis.speaking)) { hush(); listen.classList.remove("on"); return; }
+    listen.classList.add("on");
+    speak(recap);
+  };
+  speak(L("कृपया जाँच लीजिए कि यह सही है। अपनी भाषा में सुनने के लिए 'सुनिए' दबाइए।",
+    "Please check that this is correct. Tap 'Listen' to hear it in your language."));
 }
 
 /* The token slip.

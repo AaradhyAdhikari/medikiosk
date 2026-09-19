@@ -410,5 +410,24 @@ window.TR.te = {
   "The photo is not clear enough — retake it, or your doctor will read it": "ఫోటో తగినంత స్పష్టంగా లేదు — మళ్ళీ తీయండి, లేదా మీ డాక్టర్ దాన్ని చదువుతారు",
   "Reading failed — the photo is saved and your doctor will see it": "చదవడం విఫలమైంది — ఫోటో సేవ్ అయింది, మీ డాక్టర్ దాన్ని చూస్తారు",
   "That file is not a photo, or could not be opened. Please take a photo with the camera.": "ఈ ఫైల్ ఫోటో కాదు, లేదా తెరవలేకపోయాము. దయచేసి కెమెరాతో ఫోటో తీయండి.",
-  "This paper could not be saved. Please try again.": "ఈ పత్రాన్ని సేవ్ చేయలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి."
+  "This paper could not be saved. Please try again.": "ఈ పత్రాన్ని సేవ్ చేయలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి.",
+
+  // Patient recap, audio-guided mode, idle prompt, consent withdrawal — Sep 2026.
+  "In your language": "మీ భాషలో",
+  "Listen": "వినండి",
+  "Here is what has been recorded.": "నమోదు చేయబడినవి ఇవి.",
+  "Height {} cm, weight {} kg.": "ఎత్తు {} సెం.మీ, బరువు {} కిలోలు.",
+  "{} of your papers have been saved.": "మీ {} పత్రాలు సేవ్ చేయబడ్డాయి.",
+  "The doctor will now go through this with you.": "ఇప్పుడు డాక్టర్ వీటిని మీతో కలిసి చూస్తారు.",
+  "Please check that this is correct. Tap 'Listen' to hear it in your language.": "ఇది సరైనదో కాదో దయచేసి తనిఖీ చేయండి. మీ భాషలో వినడానికి 'వినండి' నొక్కండి.",
+  "Read every screen aloud": "ప్రతి స్క్రీన్ చదివి వినిపించు",
+  "Each new screen is read out by itself — for those who cannot see it well": "ప్రతి కొత్త స్క్రీన్ దానంతట అదే చదవబడుతుంది — సరిగా చూడలేని వారి కోసం",
+  "Are you still there?": "మీరు ఇంకా ఇక్కడే ఉన్నారా?",
+  "This screen will clear itself in half a minute so nobody else sees your details.": "మీ వివరాలు మరెవరూ చూడకుండా ఈ స్క్రీన్ అర నిమిషంలో దానంతట అదే క్లియర్ అవుతుంది.",
+  "Yes, I am here": "అవును, నేను ఇక్కడే ఉన్నాను",
+  "You have withdrawn consent for this visit — no doctor can open it now.": "ఈ సందర్శనకు మీరు సమ్మతిని ఉపసంహరించుకున్నారు — ఇప్పుడు ఏ డాక్టర్ దీన్ని తెరవలేరు.",
+  "Allow again": "మళ్ళీ అనుమతించు",
+  "Withdraw consent for this visit": "ఈ సందర్శనకు సమ్మతిని ఉపసంహరించు",
+  "Consent withdrawn. No doctor can open this visit now.": "సమ్మతి ఉపసంహరించబడింది. ఇప్పుడు ఏ డాక్టర్ ఈ సందర్శనను తెరవలేరు.",
+  "Consent given again.": "సమ్మతి మళ్ళీ ఇవ్వబడింది."
 };

@@ -529,6 +529,24 @@ const sendAbhaSms = (phone, abha, name) =>
 const sendLoginIdSms = (phone, loginId, name) =>
   sendSms(phone, `Namaste${name ? " " + name : ""}. Your MediKiosk patient login ID is ${loginId}. Use it with your password to see your records. Never share your password. — ${HOSPITAL}`, { VAR1: loginId });
 
+/* Module A: a red flag "triggers immediate priority alert to triage staff
+   rather than routine queueing". Top of the queue is not an alert — nobody
+   is looking at the queue. This sends one, once per visit, to the phone in
+   TRIAGE_PHONE through whichever SMS gateway is configured; in console mode
+   it prints, like the OTPs. The doctor console also sounds on its own. */
+const TRIAGE_PHONE = String(process.env.TRIAGE_PHONE || "").replace(/\D/g, "");
+async function alertTriage(visit, reason) {
+  if (visit.triageAlertedAt) return;               // one alert per visit, not one per screen
+  visit.triageAlertedAt = now();
+  const p = store.patients.find((x) => x.id === visit.patientId) || {};
+  const who = [p.name, p.ageYears ? p.ageYears + "y" : null, p.sex].filter(Boolean).join(", ") || "patient";
+  const msg = `EMERGENCY at kiosk — token ${visit.token} (${who}): ${reason}. Please attend. — ${HOSPITAL}`;
+  logEvent("triage_alerted", { visitId: visit.id, reason, to: TRIAGE_PHONE ? "sms" : "console-only" });
+  if (!TRIAGE_PHONE) { console.log("\n  🚨 " + msg + "\n     (set TRIAGE_PHONE in .env to send this by SMS)\n"); return; }
+  try { await sendSms(TRIAGE_PHONE, msg, { VAR1: visit.token }); }
+  catch (e) { console.error("  ! triage SMS failed:", e.message); }
+}
+
 // ─────────────────────────────────────────────────────────── spoken prompts
 
 /* The kiosk speaks through the browser's own voices where it can. A Windows
@@ -987,6 +1005,8 @@ function reconcileDepartment(modelDept, ruleDept, system) {
 /* The provider code lives in ai.js so tools/ai-bench.js can drive the same
    reader without booting the kiosk. Everything below is a binding. */
 const AI = require("./ai").configure(process.env, { serverless: SERVERLESS });
+const { checkInteractions } = require("./interactions");
+const { buildBundle } = require("./fhir");
 const aiOn = () => AI.on;
 const askAI = AI.ask;
 const readDocumentAI = AI.readDocument;
@@ -1132,7 +1152,15 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior, la
       ' "priorInvestigations": one paragraph summarising every investigation result found in the scanned documents, oldest first, with dates — or "None available" if no documents were read,\n' +
       ' "documents": array of {"label": string, "summary": string},\n' +
       ' "suggestedQuestions": array of up to 4 short follow-up questions,\n' +
-      ' "changeSinceLastVisit": string if this is a follow-up, else null}',
+      ' "changeSinceLastVisit": string if this is a follow-up, else null,\n' +
+      /* The one part of the summary the PATIENT hears. Their language, their
+         level, and none of the physician's provisional reasoning — a kiosk
+         reading a differential aloud to someone in a queue does harm. */
+      ` "forPatient": 4-6 short plain sentences IN ${langName}${language === "en" ? "" : " (in its own script, not transliterated)"}, addressed to the patient as "you",\n` +
+      '   saying back what has been recorded: the main problem and how long, the key details they gave, medicines and\n' +
+      '   allergies noted, and which papers were read. Simple words a person with no schooling follows when it is read\n' +
+      '   aloud. NO diagnosis, NO assessment, NO differentials, NO department — those are for the physician. End with\n' +
+      '   one sentence saying the doctor will now go through this with them}',
   }]);
   const out = parseJson(text);
 
@@ -1721,6 +1749,7 @@ async function api(req, res, pathname) {
       return {
         id: v.id, token: v.token, visitType: v.visitType, status: v.status,
         triage: v.triage, redFlag: !!v.redFlag,
+        consentWithdrawnAt: v.consentWithdrawnAt || null,
         startedAt: v.startedAt, submittedAt: v.submittedAt, assessedAt: v.assessedAt || null,
         diagnosis: v.diagnosis || null, prescription: v.prescription || null,
         icd10: v.icd10 || (sm.coding && sm.coding.icd10) || null,
@@ -1769,6 +1798,34 @@ async function api(req, res, pathname) {
   // It can also be withdrawn, because a kiosk is a shared screen and a
   // mis-tap must be recoverable — a flag nobody can clear is a flag
   // clinicians quickly learn to ignore.
+  /* Module D: consent is revocable, not just granular. A patient can pull a
+     visit back from their dashboard; from then on no clinician can open it,
+     it leaves the queue, and it is not read by the AI or shared onward. The
+     record itself is kept — it is theirs, and they can grant it again — but
+     it is theirs alone until they do. */
+  if (/^\/api\/visits\/[^/]+\/consent$/.test(pathname) && method === "POST") {
+    const s = patientOf(req);
+    if (!s) return bad(res, 401, "Sign in first.");
+    const vid = pathname.split("/")[3];
+    const visit = store.visits.find((v) => v.id === vid);
+    if (!visit) return bad(res, 404, "That visit no longer exists.");
+    if (visit.patientId !== s.pid) return bad(res, 403, "That is not your visit.");
+    const { withdraw = true } = await readBody(req);
+    if (withdraw) {
+      if (!visit.consentWithdrawnAt) {
+        visit.consentBefore = visit.consent || {};
+        visit.consent = { record: false, docs: false, share: false, locker: false };
+        visit.consentWithdrawnAt = now();
+      }
+    } else {
+      visit.consent = visit.consentBefore || { record: true, docs: true, share: true, locker: false };
+      visit.consentWithdrawnAt = null;
+    }
+    save();
+    logEvent(withdraw ? "consent_withdrawn" : "consent_regranted", { visitId: visit.id });
+    return ok(res, { visit: { id: visit.id, consent: visit.consent, consentWithdrawnAt: visit.consentWithdrawnAt || null } });
+  }
+
   if (/^\/api\/visits\/[^/]+\/emergency$/.test(pathname) && method === "POST") {
     const s = patientOf(req);
     if (!s) return bad(res, 401, "Verify your phone number first.");
@@ -1782,6 +1839,7 @@ async function api(req, res, pathname) {
 
     visit.redFlag = raise;
     visit.triage = raise ? "URGENT" : "ROUTINE";
+    if (raise) alertTriage(visit, "patient pressed the emergency button");
     // Keep the number, switch the series, so the desk and the slip still agree.
     const tail = String(visit.token).split("-")[1] || String(10 + Math.floor(Math.random() * 89));
     visit.token = (raise ? "P-" : "A-") + tail;
@@ -1820,6 +1878,7 @@ async function api(req, res, pathname) {
     save();
     if (patientRec && patientRec.language !== lang) { patientRec.language = lang; }
     logEvent("visit_started", { visitId: visit.id, visitType, system: sys, language: lang });
+    if (emergency) alertTriage(visit, "chose 'This is an emergency' at check-in");
     return ok(res, { visit });
   }
 
@@ -1895,6 +1954,26 @@ async function api(req, res, pathname) {
     save();
     logEvent("document_added", { visitId: visit.id, readable: doc.readable, readStatus, dated: !!doc.docDate });
     return ok(res, { document: publicDoc(doc), readStatus, readError });
+  }
+
+  // ---- the visit as a FHIR R4 document bundle (what the ABDM push carries)
+  m = pathname.match(/^\/api\/visits\/([\w-]+)\/fhir$/);
+  if (m && method === "GET") {
+    const doc = doctorOf(req), pat = patientOf(req);
+    if (!doc && !pat) return bad(res, 401, "Sign in required.");
+    const visit = store.visits.find((v) => v.id === m[1]);
+    if (!visit) return bad(res, 404, "Not found.");
+    if (!doc && visit.patientId !== pat.pid) return bad(res, 403, "Not yours.");
+    if (doc && visit.consentWithdrawnAt) return bad(res, 403, "The patient has withdrawn consent for this visit.");
+    const patient = store.patients.find((x) => x.id === visit.patientId) || {};
+    const clinician = doc ? store.clinicians.find((x) => x.id === doc.cid) : null;
+    const documents = chronological(store.documents.filter((d) => d.visitId === visit.id));
+    const bundle = buildBundle({ visit, patient, clinician, documents, hospital: HOSPITAL });
+    logEvent("fhir_bundle_exported", { visitId: visit.id, by: doc ? doc.cid : "patient", entries: bundle.entry.length });
+    return send(res, 200, Buffer.from(JSON.stringify(bundle, null, 2)), {
+      "content-type": "application/fhir+json; charset=utf-8",
+      "content-disposition": 'attachment; filename="medikiosk-' + visit.token + '-fhir.json"',
+    });
   }
 
   // ---- document image
@@ -1996,6 +2075,20 @@ async function api(req, res, pathname) {
     const redFlag = flagged || modelFlags.length > 0;
     if (redFlag && modelFlags.length === 0) summary.redFlags = ["Patient reported a potentially urgent symptom at intake."];
 
+    /* Module B: possible drug interactions, from every medicine the kiosk
+       has seen — each scanned paper and what the patient said they take.
+       Rule-based and deliberately narrow; the physician decides. */
+    summary.interactions = checkInteractions(
+      docs.map((d) => ({
+        label: d.label || "Document",
+        text: [(d.extracted && d.extracted.summary) || ""].concat((d.extracted && d.extracted.findings) || []).join(" ; "),
+      })).concat([{
+        label: "Reported at intake",
+        text: [summary.medications || ""].concat(
+          answers.map((a) => [a.answer, a.customAnswer].flat().filter(Boolean).join(" "))).join(" ; "),
+      }])
+    );
+
     visit.answers = answers;
     visit.summary = summary;
     visit.redFlag = redFlag;
@@ -2003,6 +2096,7 @@ async function api(req, res, pathname) {
     visit.status = "WAITING";
     visit.submittedAt = now();
     if (redFlag && !visit.token.startsWith("P-")) visit.token = "P-" + visit.token.split("-")[1];
+    if (redFlag) alertTriage(visit, (summary.redFlags || []).slice(0, 2).join("; ") || "red-flag symptom reported at intake");
     save();
 
     logEvent(redFlag ? "red_flag" : "summary_generated", { visitId: visit.id, generated, documents: docs.length });
@@ -2209,7 +2303,11 @@ async function api(req, res, pathname) {
     const unfiltered = generalist || wantsAll;
 
     const rows = store.visits
-      .filter((v) => v.status !== "IN_PROGRESS")
+      /* An interview still in progress is not the clinician's business — except
+         an emergency. A patient who pressed the red button at question four
+         must be on the list NOW, not after they finish the other twelve. */
+      .filter((v) => v.status !== "IN_PROGRESS" || v.redFlag)
+      .filter((v) => !v.consentWithdrawnAt)          // pulled back by the patient: not on any list
       .map((v) => {
         const p = store.patients.find((x) => x.id === v.patientId) || {};
         const dept = v.department || (v.summary && v.summary.department && v.summary.department.id) || null;
@@ -2277,6 +2375,10 @@ async function api(req, res, pathname) {
     if (!visit) return bad(res, 404, "Not found.");
     if (!doc && visit.patientId !== pat.pid) return bad(res, 403, "Not yours.");
     const p = store.patients.find((x) => x.id === visit.patientId) || {};
+    if (doc && visit.consentWithdrawnAt) {
+      logEvent("record_refused_consent_withdrawn", { visitId: visit.id, clinicianId: doc.cid });
+      return bad(res, 403, "The patient has withdrawn consent for this visit. It cannot be opened.");
+    }
     if (doc) {
       logEvent("record_opened", { visitId: visit.id, clinicianId: doc.cid });
       // Opening a case outside your own department is allowed — a colleague
@@ -2369,7 +2471,16 @@ async function api(req, res, pathname) {
       }
     }
 
-    if (body.pushToEmr) { visit.pushedToEmr = true; logEvent("fhir_push", { visitId: visit.id, mocked: true }); }
+    if (body.pushToEmr) {
+      // The bundle is built for real; only the transport is mocked, because
+      // the ABDM sandbox needs credentials the prototype does not hold.
+      const patient = store.patients.find((x) => x.id === visit.patientId) || {};
+      const documents = chronological(store.documents.filter((d) => d.visitId === visit.id));
+      const bundle = buildBundle({ visit, patient, clinician: store.clinicians.find((x) => x.id === s.cid), documents, hospital: HOSPITAL });
+      visit.pushedToEmr = true;
+      visit.fhirBundleId = bundle.id;
+      logEvent("fhir_push", { visitId: visit.id, mocked: true, bundleId: bundle.id, entries: bundle.entry.length });
+    }
     save();
     logEvent("visit_updated", { visitId: visit.id, keys: Object.keys(body) });
     return ok(res, { visit });

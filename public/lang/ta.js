@@ -410,5 +410,24 @@ window.TR.ta = {
   "The photo is not clear enough — retake it, or your doctor will read it": "புகைப்படம் போதுமான தெளிவாக இல்லை — மீண்டும் எடுங்கள், அல்லது உங்கள் மருத்துவர் அதைப் படிப்பார்",
   "Reading failed — the photo is saved and your doctor will see it": "படிக்க முடியவில்லை — புகைப்படம் சேமிக்கப்பட்டது, உங்கள் மருத்துவர் அதைப் பார்ப்பார்",
   "That file is not a photo, or could not be opened. Please take a photo with the camera.": "இந்தக் கோப்பு புகைப்படம் அல்ல, அல்லது திறக்க முடியவில்லை. தயவுசெய்து கேமராவால் புகைப்படம் எடுங்கள்.",
-  "This paper could not be saved. Please try again.": "இந்த ஆவணத்தைச் சேமிக்க முடியவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்."
+  "This paper could not be saved. Please try again.": "இந்த ஆவணத்தைச் சேமிக்க முடியவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.",
+
+  // Patient recap, audio-guided mode, idle prompt, consent withdrawal — Sep 2026.
+  "In your language": "உங்கள் மொழியில்",
+  "Listen": "கேளுங்கள்",
+  "Here is what has been recorded.": "பதிவு செய்யப்பட்டவை இவை.",
+  "Height {} cm, weight {} kg.": "உயரம் {} செ.மீ, எடை {} கிலோ.",
+  "{} of your papers have been saved.": "உங்கள் {} ஆவணங்கள் சேமிக்கப்பட்டுள்ளன.",
+  "The doctor will now go through this with you.": "இப்போது மருத்துவர் இவற்றை உங்களுடன் பார்ப்பார்.",
+  "Please check that this is correct. Tap 'Listen' to hear it in your language.": "இது சரியா என்று சரிபார்க்கவும். உங்கள் மொழியில் கேட்க 'கேளுங்கள்' என்பதைத் தொடவும்.",
+  "Read every screen aloud": "ஒவ்வொரு திரையையும் படித்துக் காட்டு",
+  "Each new screen is read out by itself — for those who cannot see it well": "ஒவ்வொரு புதிய திரையும் தானாகவே படிக்கப்படும் — நன்றாகப் பார்க்க முடியாதவர்களுக்கு",
+  "Are you still there?": "நீங்கள் இன்னும் இங்கே இருக்கிறீர்களா?",
+  "This screen will clear itself in half a minute so nobody else sees your details.": "உங்கள் விவரங்களை வேறு யாரும் பார்க்காதபடி இந்தத் திரை அரை நிமிடத்தில் தானாக அழிக்கப்படும்.",
+  "Yes, I am here": "ஆம், நான் இங்கேதான் இருக்கிறேன்",
+  "You have withdrawn consent for this visit — no doctor can open it now.": "இந்த வருகைக்கான ஒப்புதலை நீங்கள் திரும்பப் பெற்றுவிட்டீர்கள் — இப்போது எந்த மருத்துவரும் இதைத் திறக்க முடியாது.",
+  "Allow again": "மீண்டும் அனுமதி",
+  "Withdraw consent for this visit": "இந்த வருகைக்கான ஒப்புதலைத் திரும்பப் பெறு",
+  "Consent withdrawn. No doctor can open this visit now.": "ஒப்புதல் திரும்பப் பெறப்பட்டது. இப்போது எந்த மருத்துவரும் இந்த வருகையைத் திறக்க முடியாது.",
+  "Consent given again.": "ஒப்புதல் மீண்டும் வழங்கப்பட்டது."
 };

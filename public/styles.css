@@ -675,3 +675,29 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 
 /* Narrow kiosk: keep the glyph, drop the word rather than wrap the bar. */
 @media (max-width:430px){ .kbar .emgbtn .emglbl{display:none} .kbar .emgbtn{padding:0 11px} }
+
+/* The patient's own copy of the summary, in their language, with a Listen button. */
+.summary-sec.forpatient{background:var(--haldi-soft);border-color:var(--haldi)}
+.summary-sec.forpatient p{font-size:17px}
+.btn.listen{width:auto;margin-top:10px;padding:10px 16px;font-size:15px;border-radius:12px}
+.btn.listen.on{background:var(--haldi);color:#22160a}
+
+/* Drug-interaction notice on the doctor console: amber, one step below the emergency red. */
+.alert.ixn{background:var(--haldi-soft);border:2px solid var(--haldi)}
+.alert.ixn .emghd{display:flex;align-items:center;gap:10px;color:#7A5310}
+.alert.ixn .emghd b{font-size:16px;font-weight:800;letter-spacing:.05em}
+.alert.ixn .emghd svg{flex:none}
+.badge.vermilion{background:#F8DDD7;color:var(--vermilion)}
+
+/* "Are you still there?" — the idle prompt before the screen clears itself. */
+.idlebox{position:fixed;inset:0;background:rgba(11,31,26,.72);display:grid;place-items:center;z-index:50;padding:16px}
+.idlecard{background:#fff;border-radius:20px;padding:26px 24px;max-width:420px;width:100%;text-align:center}
+.idlecard h2{margin:0 0 8px;font-size:26px}
+.idlecard p{margin:0 0 18px;font-size:16px;line-height:1.5;color:var(--muted)}
+
+.btn.consentbtn{width:auto;margin-top:10px;padding:10px 16px;font-size:14.5px;border-radius:12px}
+
+/* Doctor console: banner for an emergency that arrived while looking elsewhere. */
+.emgbanner{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:60;width:min(720px,calc(100% - 24px));display:flex;flex-direction:column;gap:6px}
+.emgbanner button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:14px 18px;border-radius:14px;border:3px solid var(--vermilion);background:var(--vermilion-soft);color:#7A2A1E;font-size:16px;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.emgbanner button.dismiss{border:0;background:rgba(11,31,26,.85);color:#fff;font-size:13px;padding:8px 14px;width:auto;align-self:flex-end;box-shadow:none}
