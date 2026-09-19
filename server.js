@@ -1865,7 +1865,7 @@ async function api(req, res, pathname) {
         readStatus = r.readable === false ? "unreadable" : "read";
       } catch (e) {
         readStatus = "failed";
-        readError = String(e && e.message || e).slice(0, 200);
+        readError = String(e && e.message || e).slice(0, 400);
         label = "Saved as image — your doctor will read this";
         // The event log is for the audit trail; the console is what a
         // deployment's runtime logs actually show. Both, so it is findable.

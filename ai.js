@@ -72,17 +72,19 @@ function chain(clients, log) {
     return Object.assign({}, off, { on: false, chain: [] });
   }
   async function viaEach(fn, what) {
-    let lastErr;
+    const errors = [];
     for (const c of clients) {
       try {
         return await fn(c);
       } catch (e) {
-        lastErr = e;
+        errors.push(c.label + ": " + String(e && e.message || e).slice(0, 160));
         const next = clients[clients.indexOf(c) + 1];
         if (next) warn("  " + what + " on " + c.label + " failed (" + String(e.message).slice(0, 100) + ") — trying " + next.label);
       }
     }
-    throw lastErr;
+    // Every provider failed. Report all of them: the last error alone hides
+    // why the first one — the one that should have answered — did not.
+    throw new Error(errors.join(" | "));
   }
   return {
     provider: first.provider, model: first.model, label: first.label, on: true,
