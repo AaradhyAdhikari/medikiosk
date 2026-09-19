@@ -74,6 +74,7 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 
 const EMPTY = { patients: [], clinicians: [], visits: [], documents: [], events: [], otps: [], seeded: false };
 let store = null;
+const INSTANCE_ID = crypto.randomBytes(3).toString("hex");   // tells one serverless instance from another
 
 let admin = null;
 let firebaseDb = null;
@@ -1503,6 +1504,10 @@ async function api(req, res, pathname) {
       // or a browser tab, why a scan came back unread.
       aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
       tts: TTS_ON,
+      // Where the data lives. "memory" on a serverless host means nothing
+      // survives a cold start and instances do not see each other.
+      storage: firebaseDb ? "firebase" : (SERVERLESS ? "memory" : "file"),
+      instance: INSTANCE_ID,
     });
   }
 
