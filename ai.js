@@ -24,6 +24,9 @@ const PROVIDERS = {
   mistral: {
     keyVar: "MISTRAL_API_KEY",
     model: "mistral-large-latest",
+    // The free Experiment tier does not serve Large. These are tried in
+    // turn when a model answers "not available in your subscription tier".
+    alsoTry: ["mistral-medium-latest", "mistral-small-latest", "pixtral-12b-latest"],
     url: "https://api.mistral.ai/v1/chat/completions",
     style: "mistral",
     label: "Mistral",
@@ -126,7 +129,7 @@ function makeClient({ provider, key, model, timeoutMs, log }) {
      failure is ours to report. */
   /* "Model does not exist" is a configuration problem, not a request problem;
      the next model on the list may well exist. Everything else is thrown. */
-  const goneModel = (e) => /model.{0,40}(does not exist|not found|decommissioned|deprecated|no longer)/i.test(String(e && e.message));
+  const goneModel = (e) => /model.{0,40}(does not exist|not found|decommissioned|deprecated|no longer)|not available in your subscription|tier_not_allowed/i.test(String(e && e.message));
   let activeModel = model;
 
   async function ask(content, maxTokens) {
