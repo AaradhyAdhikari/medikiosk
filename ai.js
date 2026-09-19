@@ -72,7 +72,7 @@ function chain(clients, log) {
   if (!first) {
     // No key anywhere. Same shape as a live client, so callers need no branch.
     const off = makeClient({ provider: "anthropic", key: "", model: PROVIDERS.anthropic.model });
-    return Object.assign({}, off, { on: false, chain: [] });
+    return Object.assign({}, off, { on: false, chain: [], check: async () => [] });
   }
   async function viaEach(fn, what) {
     const errors = [];
@@ -89,11 +89,28 @@ function chain(clients, log) {
     // why the first one — the one that should have answered — did not.
     throw new Error(errors.join(" | "));
   }
+  /* One tiny request to every provider in the chain, in parallel, so an
+     operator can see which keys work without scanning a paper and reading
+     the event log. Text only, a handful of tokens: free on every tier. */
+  async function check() {
+    return Promise.all(clients.map(async (c) => {
+      const t0 = Date.now();
+      try {
+        const text = await c.ask([{ type: "text", text: 'Reply with exactly this JSON and nothing else: {"ok":true}' }], 20);
+        const ok = /"ok"\s*:\s*true/.test(text);
+        return { provider: c.provider, model: c.model, ok, ms: Date.now() - t0, error: ok ? null : "unexpected reply: " + text.slice(0, 60) };
+      } catch (e) {
+        return { provider: c.provider, model: c.model, ok: false, ms: Date.now() - t0, error: String(e && e.message || e).slice(0, 200) };
+      }
+    }));
+  }
+
   return {
     provider: first.provider, model: first.model, label: first.label, on: true,
     chain: clients.map((c) => c.provider + " · " + c.model),
     ask: (content, maxTokens) => viaEach((c) => c.ask(content, maxTokens), "summary"),
     readDocument: (dataUrl) => viaEach((c) => c.readDocument(dataUrl), "document read"),
+    check,
     parseJson,
   };
 }

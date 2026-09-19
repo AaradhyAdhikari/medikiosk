@@ -991,6 +991,7 @@ const aiOn = () => AI.on;
 const askAI = AI.ask;
 const readDocumentAI = AI.readDocument;
 const parseJson = AI.parseJson;
+let aiCheckCache = null;
 
 /* ── system of medicine ───────────────────────────────────────────────
    The patient chooses Ayurvedic, allopathic or both at the kiosk. An
@@ -1443,6 +1444,15 @@ async function api(req, res, pathname) {
       aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
       tts: TTS_ON,
     });
+  }
+
+  // ---- which AI keys actually work. One tiny call per provider, answers
+  // cached for a minute so a refresh-happy tab cannot burn a free quota.
+  if (pathname === "/api/ai/check" && method === "GET") {
+    if (!aiCheckCache || Date.now() - aiCheckCache.at > 60000) {
+      aiCheckCache = { at: Date.now(), result: await AI.check() };
+    }
+    return ok(res, { chain: AI.chain, providers: aiCheckCache.result, checkedAt: new Date(aiCheckCache.at).toISOString() });
   }
 
   // ---- spoken prompts, for languages this machine has no voice for
