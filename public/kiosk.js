@@ -458,6 +458,24 @@ async function raiseFromAnswer(q) {
   go("red");
 }
 document.getElementById("btn-home").onclick = function () { location.href = "/"; };
+/* Kiosk mode. A real kiosk shows no address bar and no tabs. Installed as
+   an app (the manifest says fullscreen) this button is not needed and stays
+   hidden; in a plain browser tab it is offered, and a language tap — the
+   first thing every patient does — counts as the user gesture fullscreen
+   needs. Exiting is the browser's own Esc; a patient cannot get lost. */
+(function () {
+  var b = document.getElementById("btn-full");
+  if (!b || !document.documentElement.requestFullscreen) return;
+  var standalone = window.matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches || navigator.standalone;
+  if (standalone) return;
+  b.hidden = false;
+  var paint = function () { b.classList.toggle("on", !!document.fullscreenElement); };
+  b.onclick = function () {
+    if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
+    else document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(function () {});
+  };
+  document.addEventListener("fullscreenchange", paint);
+})();
 document.getElementById("btn-a11y").onclick = function () { S.beforeA11y = S.screen; go("a11y"); };
 
 /* Their own record, one tap from anywhere, once they are signed in. */

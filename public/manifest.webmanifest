@@ -1,0 +1,17 @@
+{
+  "name": "MediKiosk — Patient intake",
+  "short_name": "MediKiosk",
+  "description": "AI clinical history intake for AYUSH OPDs. SIH26047, Ministry of Ayush.",
+  "start_url": "/kiosk",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0E2A22",
+  "theme_color": "#0E2A22",
+  "lang": "hi",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

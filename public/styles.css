@@ -721,3 +721,5 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .dnav a + a{margin-left:0}
 .split.home{align-items:start}
 @media (max-width:760px){.split.home{grid-template-columns:1fr}}
+
+.kbar #btn-full.on{background:var(--haldi);color:#22160a}

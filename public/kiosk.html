@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MediKiosk — Patient</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0E2A22">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&family=Tiro+Devanagari+Hindi&family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+Gujarati:wght@400;500;600;700&family=Noto+Sans+Gurmukhi:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&family=Noto+Sans+Telugu:wght@400;500;600;700&display=swap">
@@ -28,6 +34,7 @@
       <button id="btn-a11y" title="Larger text and high contrast" aria-label="Accessibility options"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.2 16.2 21 21M8.5 11h5M11 8.5v5"/></svg></button>
       <button id="btn-lang" title="Change language" aria-label="Change language"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.2 2.4 3.4 5.4 3.4 8.5S14.2 18.1 12 20.5c-2.2-2.4-3.4-5.4-3.4-8.5S9.8 5.9 12 3.5Z"/></svg></button>
       <button id="btn-help" class="emgbtn" title="Emergency — tell staff now" aria-label="Emergency — tell staff now"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 21.5 20H2.5Z"/><path d="M12 9.5v4.5M12 17h.01"/></svg><span class="emglbl">EMERGENCY</span></button>
+      <button id="btn-full" title="Fullscreen (kiosk mode)" aria-label="Fullscreen" hidden><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
       <button id="btn-home" title="Start over" aria-label="Start over"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/><path d="M9.5 21.5v-7h5v7"/></svg></button>
     </div>
     <div class="kbody" id="kbody"></div>
@@ -46,5 +53,6 @@
 <script src="/qr.js"></script>
 <script src="/questions.js"></script>
 <script src="/kiosk.js"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});</script>
 </body>
 </html>
