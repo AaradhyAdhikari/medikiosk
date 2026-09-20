@@ -9,8 +9,9 @@
  */
 const fs = require("fs");
 const path = require("path");
-const acorn = require("/opt/node-tools/node_modules/acorn");
-const walk = require("/opt/node-tools/node_modules/acorn-walk");
+// devDependencies — `npm install` brings them; the old absolute path was one machine's.
+const acorn = require("acorn");
+const walk = require("acorn-walk");
 
 function lit(n) {
   if (!n) return null;

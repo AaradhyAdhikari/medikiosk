@@ -31,7 +31,7 @@ for (const code of codes) {
   const w = { TR: {} };
   new Function("window", fs.readFileSync(f, "utf8"))(w);
   const have = w.TR[code] || {};
-  const missing = [...want].filter((k) => !have[k]);
+  const missing = [...want].filter((k) => k && !(k in have));   // an empty key is a placeholder, not a gap
   const extra = Object.keys(have).filter((k) => !want.has(k));
   const state = missing.length ? "INCOMPLETE" : "complete";
   console.log(`  ${code}: ${Object.keys(have).length}/${want.size} — ${state}` +
