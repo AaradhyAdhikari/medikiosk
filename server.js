@@ -1254,6 +1254,16 @@ async function buildSummaryAI({ answers, documents, visitType, system, prior, la
       "not a finding — read the history above on its own terms.";
   }
   if (!Array.isArray(out.differentials)) out.differentials = [];
+
+  /* The patient's recap. Models sometimes hand it back as a list of
+     sentences; the kiosk wants one string. And the free-tier models write
+     fluent Hindi and English but shaky Marathi, Tamil and the rest — a line
+     of near-nonsense read aloud to a patient is worse than none. For those
+     languages the kiosk builds the recap itself from the patient's own
+     answers, which were translated by hand, so the model's version is
+     dropped and the kiosk's used. */
+  if (Array.isArray(out.forPatient)) out.forPatient = out.forPatient.map((x) => String(x).trim()).filter(Boolean).join(" ");
+  if (typeof out.forPatient !== "string" || !out.forPatient.trim() || !["en", "hi"].includes(language)) out.forPatient = null;
   if (!Array.isArray(out.investigations)) out.investigations = [];
 
   return out;
