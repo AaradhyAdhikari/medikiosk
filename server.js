@@ -470,6 +470,36 @@ const publicDoc = (d) => ({
   docDate: d.docDate || null, dateText: d.dateText || null,
 });
 
+/* ── rate limits ────────────────────────────────────────────────────
+   A kiosk on the public internet is a script's target as much as a
+   patient's. Every endpoint below either sends an SMS, calls a model, or
+   fetches audio from a third party — each one somebody else's quota or
+   the hospital's money. The limits are per client address and generous
+   for a human at a screen: a patient cannot request twenty codes a
+   minute, but a script can, and that is who this is for.
+
+   The counters live in this process. On a serverless host that means per
+   instance, which makes the ceiling looser than it looks, not tighter —
+   the honest way to say it. A shared store would make it exact; for a
+   prototype, best effort is the right cost. */
+const rlBuckets = new Map();                        // key -> [timestamps]
+function clientIp(req) {
+  const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return fwd || (req.socket && req.socket.remoteAddress) || "unknown";
+}
+function rateLimited(req, name, max, windowMs) {
+  const key = name + "|" + clientIp(req);
+  const nowMs = Date.now();
+  const hits = (rlBuckets.get(key) || []).filter((t) => nowMs - t < windowMs);
+  if (hits.length >= max) { rlBuckets.set(key, hits); return true; }
+  hits.push(nowMs);
+  rlBuckets.set(key, hits);
+  // Keep the map from growing without bound on a long-lived server.
+  if (rlBuckets.size > 5000) for (const k of rlBuckets.keys()) { if (rlBuckets.size <= 4000) break; rlBuckets.delete(k); }
+  return false;
+}
+const tooMany = (res, what) => bad(res, 429, "Too many " + what + " from this device. Please wait a minute and try again.");
+
 function cookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || "").split(";")) {
@@ -1523,6 +1553,9 @@ async function api(req, res, pathname) {
   // ---- spoken prompts, for languages this machine has no voice for
   if (pathname === "/api/tts" && method === "GET") {
     if (!TTS_ON) return bad(res, 404, "Spoken prompts are switched off.");
+    // Audio-guided mode reads every screen; a patient still makes well under
+    // this many requests a minute. A script does not.
+    if (rateLimited(req, "tts", 60, 60000)) return tooMany(res, "speech requests");
     const qs = new URL(req.url, "http://x").searchParams;
     const lang = String(qs.get("lang") || "").toLowerCase();
     // A whole screen — question, hint, eight options — is a few hundred
@@ -1549,6 +1582,7 @@ async function api(req, res, pathname) {
 
   // ---- patient: request a code
   if (pathname === "/api/otp/send" && method === "POST") {
+    if (rateLimited(req, "otp", 10, 10 * 60000)) return tooMany(res, "code requests");
     const { phone } = await readBody(req);
     const digits = String(phone || "").replace(/\D/g, "");
     if (digits.length !== 10) return bad(res, 400, "Enter a 10-digit mobile number.");
@@ -1924,6 +1958,7 @@ async function api(req, res, pathname) {
   if (m && method === "POST") {
     const s = patientOf(req);
     if (!s) return bad(res, 401, "Your session expired.");
+    if (rateLimited(req, "documents", 30, 10 * 60000)) return tooMany(res, "scans");
     const visit = store.visits.find((v) => v.id === m[1]);
     if (!visit) return bad(res, 404, "Visit not found.");
     if (visit.patientId !== s.pid) return bad(res, 403, "Not yours.");
@@ -2041,6 +2076,7 @@ async function api(req, res, pathname) {
   if (m && method === "POST") {
     const s = patientOf(req);
     if (!s) return bad(res, 401, "Your session expired.");
+    if (rateLimited(req, "submit", 10, 10 * 60000)) return tooMany(res, "submissions");
     const visit = store.visits.find((v) => v.id === m[1]);
     if (!visit) return bad(res, 404, "Visit not found.");
     if (visit.patientId !== s.pid) return bad(res, 403, "Not yours.");
@@ -2291,6 +2327,7 @@ async function api(req, res, pathname) {
 
   // ---- doctor: login
   if (pathname === "/api/doctor/login" && method === "POST") {
+    if (rateLimited(req, "doctor-login", 10, 10 * 60000)) return tooMany(res, "sign-in attempts");
     const { email, password } = await readBody(req);
     const c = store.clinicians.find((x) => x.email === String(email || "").toLowerCase().trim());
     if (!c || !verifyPassword(String(password || ""), c.passwordHash)) return bad(res, 401, "Those details are not right.");
