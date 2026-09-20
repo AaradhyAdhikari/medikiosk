@@ -711,3 +711,13 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .vrow .bmi b{font-size:17px}
 .vrow .vsrc{font-size:12.5px;color:var(--muted)}
 .vrow .btn{width:auto}
+
+/* Doctor console: Home / Queue navigation and the home layout. */
+.dnav{display:flex;gap:6px;align-items:center;padding:10px 22px 0;flex-wrap:wrap}
+.dnav button,.dnav a{font:inherit;font-size:14px;font-weight:700;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;text-decoration:none}
+.dnav button.on{background:var(--ground2);color:var(--on-dark);border-color:var(--ground2)}
+.dnav .cnt{display:inline-block;min-width:20px;padding:0 6px;border-radius:999px;background:var(--haldi);color:#22160a;font-size:12px;text-align:center;margin-left:4px}
+.dnav a{color:var(--muted);font-weight:600;margin-left:auto}
+.dnav a + a{margin-left:0}
+.split.home{align-items:start}
+@media (max-width:760px){.split.home{grid-template-columns:1fr}}

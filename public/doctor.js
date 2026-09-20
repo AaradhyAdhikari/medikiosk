@@ -193,14 +193,177 @@ function afterSignIn() {
     D.timer = setInterval(function () { if (D.view === "queue") loadQueue(); }, 4000);
     return openVisit(id);
   }
-  startQueue();
+  startHome();
 }
 
 function startQueue() {
   D.view = "queue";
   clearInterval(D.timer);
   loadQueue();
-  D.timer = setInterval(function () { if (D.view === "queue") loadQueue(); }, 4000);
+  D.timer = setInterval(function () { if (D.view === "queue") loadQueue(); else if (D.view === "home") { loadQueue(); } }, 4000);
+}
+
+/* ── home ───────────────────────────────────────────
+   The first screen after sign-in: what is waiting, what is urgent, what I
+   have already seen today, who is waiting for approval, and a way to find
+   any record. The queue stays a queue; this is the desk. */
+function startHome() {
+  D.view = "home";
+  clearInterval(D.timer);
+  loadHome();
+  // The queue is polled behind the home screen so a new emergency still
+  // sounds and shows its banner here.
+  loadQueue();
+  D.timer = setInterval(function () {
+    if (D.view === "queue") loadQueue();
+    else if (D.view === "home") { loadQueue(); loadHome(); }
+  }, 6000);
+}
+async function loadHome() {
+  try {
+    D.home = await api("/api/doctor/home");
+    if (D.view === "home") renderHome();
+  } catch (e) {
+    if (String(e.message).indexOf("Sign in") > -1) { clearInterval(D.timer); D.clinician = null; renderLogin(); }
+  }
+}
+function navBar(active) {
+  return '<nav class="dnav">' +
+    '<button class="' + (active === "home" ? "on" : "") + '" id="nav-home">' + ICON("person", 15) + " Home</button>" +
+    '<button class="' + (active === "queue" ? "on" : "") + '" id="nav-queue">Queue' +
+      (D.data && D.data.stats && D.data.stats.waiting ? ' <span class="cnt">' + D.data.stats.waiting + "</span>" : "") + "</button>" +
+    '<a href="/kiosk" target="_blank" rel="noopener">Kiosk ↗</a>' +
+    '<a href="/about" target="_blank" rel="noopener">About ↗</a>' +
+    "</nav>";
+}
+function wireNav() {
+  var h = document.getElementById("nav-home"), q = document.getElementById("nav-queue");
+  if (h) h.onclick = function () { startHome(); };
+  if (q) q.onclick = function () { startQueue(); renderQueue(); };
+  var out = document.getElementById("out");
+  if (out) out.onclick = async function () {
+    await api("/api/doctor/logout", {}, "POST");
+    clearInterval(D.timer); D.clinician = null; renderLogin();
+  };
+}
+function fmtTime(t) {
+  if (!t) return "";
+  var d = new Date(t);
+  return isNaN(d) ? "" : d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+function briefRow(v, extra) {
+  return '<button class="qrow' + (v.redFlag && v.status !== "ASSESSED" ? " flag" : "") + (v.status === "ASSESSED" ? " done" : "") +
+    '" data-id="' + esc(v.id) + '">' +
+    '<span class="tok">' + esc(v.token) + "</span>" +
+    '<span><p class="nm">' + esc(v.patient.name + (v.patient.ageYears ? ", " + v.patient.ageYears : "")) + "</p>" +
+      '<p class="mt">' + esc(String(v.diagnosis || v.chiefComplaint).slice(0, 80)) + "</p></span>" +
+    '<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (extra || "") + "</span></button>";
+}
+function renderHome() {
+  var h = D.home;
+  if (!h) { shell('<div class="dbody"><p style="color:var(--muted)">Loading…</p></div>'); return; }
+  var t = h.today || {};
+  var hour = new Date().getHours();
+  var greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  shell(
+    '<div class="dhead"><span class="hic">' + ICON("person", 22) + '</span><div><h2>' + greet + ", " + esc(h.me.name) + "</h2>" +
+      '<div class="sub">' + esc(h.me.department || "") + (h.me.room ? " · " + esc(h.me.room) : "") +
+      (h.me.hprId ? ' · <span class="mono">HPR ' + esc(h.me.hprId) + "</span>" : "") + "</div></div>" +
+      '<span class="spacer"></span><button class="badge grey" id="out" style="padding:7px 13px">Sign out</button></div>' +
+    navBar("home") +
+    '<div class="dbody">' +
+
+      (h.emergencies.length
+        ? '<div class="alert emg" style="margin-bottom:16px"><div class="emghd">' + ICON("alert", 26) +
+          "<b>" + h.emergencies.length + " EMERGENCY " + (h.emergencies.length === 1 ? "CASE" : "CASES") + " WAITING</b></div>" +
+          '<div style="margin-top:10px;display:grid;gap:8px">' +
+          h.emergencies.map(function (v) { return briefRow(v, badgeFor(v)); }).join("") + "</div></div>"
+        : "") +
+
+      '<div class="stats">' +
+        '<div class="stat"><b>' + (t.waiting || 0) + "</b><span>WAITING NOW</span></div>" +
+        '<div class="stat"><b style="color:var(--vermilion)">' + (t.emergencies || 0) + "</b><span>EMERGENCY</span></div>" +
+        '<div class="stat"><b style="color:var(--jade)">' + (t.assessedByMe || 0) + "</b><span>SEEN BY ME TODAY</span></div>" +
+        '<div class="stat"><b>' + (t.intakes || 0) + "</b><span>INTAKES TODAY</span></div>" +
+        '<div class="stat"><b>' + (t.documents || 0) + "</b><span>PAPERS SCANNED</span></div>" +
+        '<div class="stat"><b style="color:var(--jade)">' + (t.minutesSaved || 0) + '<span style="font-size:15px"> min</span></b><span>CONSULT TIME SAVED</span></div>' +
+      "</div>" +
+
+      '<div class="split home">' +
+        "<div>" +
+          '<div class="panel"><h3>Next up</h3>' +
+            (h.nextUp.length
+              ? '<div style="display:grid;gap:8px">' + h.nextUp.map(function (v) {
+                  return briefRow(v, badgeFor(v) + (v.departmentLabel ? '<span class="badge dept">' + esc(v.departmentLabel) + "</span>" : "") +
+                    (v.vitals.heightCm || v.vitals.weightKg ? '<span class="badge grey mono">' + (v.vitals.heightCm || "—") + "cm · " + (v.vitals.weightKg || "—") + "kg</span>" : '<span class="badge haldi">Ht/Wt —</span>'));
+                }).join("") + "</div>"
+              : '<p style="font-size:14px;color:var(--muted);margin:0">Nobody waiting in your department right now.</p>') +
+            '<button class="btn ghost" id="toqueue" style="margin-top:12px;font-size:15px;padding:11px">Open the full queue' +
+              (t.waiting > h.nextUp.length + h.emergencies.length ? " · " + (t.waiting - h.nextUp.length - h.emergencies.length) + " more" : "") + "</button>" +
+          "</div>" +
+
+          '<div class="panel" style="margin-top:16px"><h3>Find a record</h3>' +
+            '<div style="display:flex;gap:8px"><input class="field" id="q" placeholder="Token, name, phone, ABHA or login ID" style="flex:1">' +
+              '<button class="btn" id="qgo" style="width:auto;padding:12px 18px">Search</button></div>' +
+            '<div id="qres" style="margin-top:10px"></div>' +
+            '<p style="font-size:12px;color:var(--muted);margin:8px 0 0">Every search is written to the audit trail against your name, as opening a record is.</p>' +
+          "</div>" +
+        "</div>" +
+
+        "<div>" +
+          '<div class="panel"><h3>My patients · assessed</h3>' +
+            (h.myPatients.length
+              ? '<div style="display:grid;gap:8px">' + h.myPatients.map(function (v) {
+                  return briefRow(v, '<span class="badge jade">' + ICON("check", 12) + " " + fmtTime(v.assessedAt) + "</span>");
+                }).join("") + "</div>"
+              : '<p style="font-size:14px;color:var(--muted);margin:0">Nothing assessed under your name yet. Cases you mark as assessed appear here.</p>') +
+          "</div>" +
+
+          (h.pendingClinicians.length
+            ? '<div class="panel" style="margin-top:16px"><h3>Clinicians waiting for approval</h3>' +
+              h.pendingClinicians.map(function (c) {
+                return '<div class="hline" style="align-items:center"><dt style="flex:1"><b>' + esc(c.name) + "</b><br><small style=\"color:var(--muted)\">" +
+                  esc(c.email) + " · " + esc(c.department || "") + (c.room ? " · " + esc(c.room) : "") + "</small></dt>" +
+                  '<dd><button class="btn ghost" data-approve="' + esc(c.id) + '" style="width:auto;font-size:14px;padding:9px 14px">Approve</button></dd></div>';
+              }).join("") +
+              '<p style="font-size:12px;color:var(--muted);margin:8px 0 0">Only approve someone you know is on staff. The approval is logged against your name.</p></div>'
+            : "") +
+
+          '<div class="panel" style="margin-top:16px"><h3>This kiosk</h3>' +
+            '<div class="hline"><dt>AI</dt><dd>' + (h.ai.on ? '<span class="badge jade">on</span> <small class="mono" style="color:var(--muted)">' + esc(h.ai.chain.join(" → ")) + "</small>" : '<span class="badge haldi">off</span> <small style="color:var(--muted)">no key — summaries are assembled, papers stored unread</small>') + "</dd></div>" +
+            '<div class="hline"><dt>Storage</dt><dd>' + (h.storage === "firebase" ? '<span class="badge jade">Firebase</span>' : h.storage === "memory" ? '<span class="badge vermilion">memory only</span> <small style="color:var(--muted)">nothing survives a restart — set the Firebase variables</small>' : '<span class="badge grey">local file</span>') + "</dd></div>" +
+          "</div>" +
+        "</div>" +
+      "</div>" +
+    "</div>"
+  );
+  wireNav();
+  document.getElementById("toqueue").onclick = function () { startQueue(); renderQueue(); };
+  stage.querySelectorAll("[data-id]").forEach(function (el) { el.onclick = function () { openVisit(el.dataset.id); }; });
+  stage.querySelectorAll("[data-approve]").forEach(function (b) {
+    b.onclick = async function () {
+      b.disabled = true; b.textContent = "Approving…";
+      try { await api("/api/doctor/approve", { clinicianId: b.dataset.approve }); await loadHome(); }
+      catch (e) { b.textContent = e.message; }
+    };
+  });
+  var q = document.getElementById("q"), go = document.getElementById("qgo"), res = document.getElementById("qres");
+  async function search() {
+    var v = q.value.trim(); if (v.length < 2) { res.innerHTML = ""; return; }
+    res.innerHTML = '<p style="font-size:13px;color:var(--muted);margin:0">Searching…</p>';
+    try {
+      var r = await api("/api/doctor/search?q=" + encodeURIComponent(v));
+      res.innerHTML = r.results.length
+        ? '<div style="display:grid;gap:8px">' + r.results.map(function (x) {
+            return briefRow(x, badgeFor(x) + '<span class="badge grey">' + esc(new Date(x.submittedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })) + "</span>" +
+              (x.patient.abhaNumber ? '<span class="badge grey mono">ABHA ' + esc(x.patient.abhaNumber) + "</span>" : ""));
+          }).join("") + "</div>"
+        : '<p style="font-size:14px;color:var(--muted);margin:0">No record matches “' + esc(v) + "”.</p>";
+      res.querySelectorAll("[data-id]").forEach(function (el) { el.onclick = function () { openVisit(el.dataset.id); }; });
+    } catch (e) { res.innerHTML = '<p style="font-size:14px;color:var(--vermilion);margin:0">' + esc(e.message) + "</p>"; }
+  }
+  go.onclick = search;
+  q.onkeydown = function (e) { if (e.key === "Enter") search(); };
 }
 
 /* An emergency that arrives while the clinician is looking at another case
@@ -379,6 +542,7 @@ function renderQueue() {
     '<div class="sub">' + esc(D.clinician.name) + (D.clinician.department ? " · " + esc(D.clinician.department) : "") +
       (D.clinician.room ? " · " + esc(D.clinician.room) : "") + "</div></div>" +
     '<span class="spacer"></span><button class="badge grey" id="out" style="padding:7px 13px">Sign out</button></div>' +
+    navBar("queue") +
     '<div class="dbody">' +
       emergencyBar(active) +
       scopeBar(d.scope) +
@@ -397,10 +561,7 @@ function renderQueue() {
     "</div>"
   );
 
-  document.getElementById("out").onclick = async function () {
-    await api("/api/doctor/logout", {}, "POST");
-    clearInterval(D.timer); D.clinician = null; renderLogin();
-  };
+  wireNav();
   var on = document.getElementById("scopeon");
   if (on) on.onclick = function () { D.showAll = true; loadQueue(); };
   var off = document.getElementById("scopeoff");
@@ -423,6 +584,7 @@ function renderQueue() {
 /* ── one case ───────────────────────────────────────── */
 
 async function openVisit(id) {
+  D.from = D.view === "home" ? "home" : "queue";
   D.view = "case";
   D.amending = false;
   shell('<div class="dbody"><div class="thinking"><span class="spinner"></span>Loading the patient\'s history…</div></div>');
@@ -774,7 +936,7 @@ function renderCase() {
       "</div></div></div>"
   );
 
-  document.getElementById("bk").onclick = function () { D.view = "queue"; renderQueue(); loadQueue(); };
+  document.getElementById("bk").onclick = function () { if (D.from === "home") startHome(); else { D.view = "queue"; renderQueue(); loadQueue(); } };
   var callin = document.getElementById("callin");
   if (callin) callin.onclick = function () { patchVisit({ status: "IN_CONSULT" }); };
   var assessed = document.getElementById("assessed");

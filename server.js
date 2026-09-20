@@ -2367,6 +2367,93 @@ async function api(req, res, pathname) {
     return ok(res, { clinician: c ? publicClinician(c) : null });
   }
 
+  /* ---- doctor: home. One screen after sign-in that gathers what a
+     clinician looks for on arrival — who is waiting, who is an emergency,
+     who they have already seen today, colleagues waiting for approval — so
+     the queue page can stay a queue. */
+  if (pathname === "/api/doctor/home" && method === "GET") {
+    const s = doctorOf(req);
+    if (!s) return bad(res, 401, "Sign in required.");
+    const me = store.clinicians.find((x) => x.id === s.cid) || {};
+    const scope = scopeOf(me);
+    const generalist = scope === GENERAL_SCOPE;
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const today = (t) => t && new Date(t) >= dayStart;
+    const patientOfVisit = (v) => store.patients.find((x) => x.id === v.patientId) || {};
+    const brief = (v) => {
+      const p = patientOfVisit(v);
+      return {
+        id: v.id, token: v.token, status: v.status, redFlag: !!v.redFlag, visitType: v.visitType,
+        submittedAt: v.submittedAt || v.startedAt, assessedAt: v.assessedAt || null,
+        chiefComplaint: (v.summary && v.summary.chiefComplaint) || "History recorded",
+        diagnosis: v.diagnosis || null,
+        department: v.department || null, departmentLabel: v.departmentLabel || (v.department ? deptLabel(v.department) : null),
+        patient: { name: p.name || "Patient", ageYears: p.ageYears || null, sex: p.sex || null },
+        vitals: { heightCm: (v.vitals && v.vitals.heightCm) || p.heightCm || null, weightKg: (v.vitals && v.vitals.weightKg) || p.weightKg || null },
+      };
+    };
+    const visible = store.visits.filter((v) => !v.consentWithdrawnAt && (v.status !== "IN_PROGRESS" || v.redFlag));
+    const mineScope = (v) => generalist || v.department === scope || !v.department || v.redFlag;
+    const waiting = visible.filter((v) => v.status !== "ASSESSED" && mineScope(v));
+    const rank = (v) => (v.redFlag ? 3 : v.status === "IN_CONSULT" ? 2 : 0);
+    waiting.sort((a, b) => rank(b) - rank(a) || String(a.submittedAt || a.startedAt).localeCompare(String(b.submittedAt || b.startedAt)));
+    const myAssessed = store.visits.filter((v) => v.status === "ASSESSED" && v.clinicianId === s.cid)
+      .sort((a, b) => String(b.assessedAt || "").localeCompare(String(a.assessedAt || "")));
+    const pending = store.clinicians.filter((c) => !c.approved).map((c) => ({
+      id: c.id, name: c.name, email: c.email, department: c.department || deptLabel(scopeOf(c)), room: c.room, createdAt: c.createdAt,
+    }));
+    return ok(res, {
+      me: publicClinician(me),
+      today: {
+        waiting: waiting.length,
+        emergencies: waiting.filter((v) => v.redFlag).length,
+        assessedByMe: myAssessed.filter((v) => today(v.assessedAt)).length,
+        assessedAll: visible.filter((v) => v.status === "ASSESSED" && today(v.assessedAt)).length,
+        intakes: visible.filter((v) => today(v.submittedAt || v.startedAt)).length,
+        minutesSaved: visible.filter((v) => today(v.submittedAt || v.startedAt)).length * 4,
+        documents: store.documents.filter((d) => today(d.createdAt)).length,
+      },
+      emergencies: waiting.filter((v) => v.redFlag).map(brief),
+      nextUp: waiting.filter((v) => !v.redFlag).slice(0, 5).map(brief),
+      myPatients: myAssessed.slice(0, 12).map(brief),
+      pendingClinicians: pending,
+      ai: { on: aiOn(), chain: AI.chain },
+      storage: firebaseDb ? "firebase" : (SERVERLESS ? "memory" : "file"),
+    });
+  }
+
+  /* ---- doctor: find a record — by token, name, phone, ABHA or login ID.
+     Every search is logged against the clinician, as opening a record is. */
+  if (pathname === "/api/doctor/search" && method === "GET") {
+    const s = doctorOf(req);
+    if (!s) return bad(res, 401, "Sign in required.");
+    const q = String(new URL(req.url, "http://x").searchParams.get("q") || "").trim();
+    if (q.length < 2) return ok(res, { results: [] });
+    const norm = (x) => String(x || "").toLowerCase();
+    const digits = q.replace(/\D/g, "");
+    const patients = store.patients.filter((p) =>
+      norm(p.name).includes(norm(q)) ||
+      (digits.length >= 4 && (String(p.phone || "").includes(digits) || String(p.abhaNumber || "").replace(/\D/g, "").includes(digits))) ||
+      norm(p.loginId) === norm(q));
+    const pids = new Set(patients.map((p) => p.id));
+    const visits = store.visits.filter((v) => !v.consentWithdrawnAt && (pids.has(v.patientId) || norm(v.token) === norm(q) || norm(v.checkinCode) === norm(q)))
+      .sort((a, b) => String(b.submittedAt || b.startedAt || "").localeCompare(String(a.submittedAt || a.startedAt || "")))
+      .slice(0, 30);
+    logEvent("record_searched", { clinicianId: s.cid, query: q.slice(0, 40), hits: visits.length });
+    return ok(res, {
+      results: visits.map((v) => {
+        const p = store.patients.find((x) => x.id === v.patientId) || {};
+        return {
+          id: v.id, token: v.token, status: v.status, redFlag: !!v.redFlag, visitType: v.visitType,
+          submittedAt: v.submittedAt || v.startedAt, diagnosis: v.diagnosis || null,
+          chiefComplaint: (v.summary && v.summary.chiefComplaint) || "History recorded",
+          departmentLabel: v.departmentLabel || (v.department ? deptLabel(v.department) : null),
+          patient: { name: p.name || "Patient", ageYears: p.ageYears || null, sex: p.sex || null, abhaNumber: p.abhaNumber || null },
+        };
+      }),
+    });
+  }
+
   if (pathname === "/api/doctor/logout" && method === "POST") {
     res.setHeader("set-cookie", "mk_doctor=; Path=/; HttpOnly; Max-Age=0");
     return ok(res, { ok: true });
