@@ -6,89 +6,171 @@
 <title>How MediKiosk works</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&family=Tiro+Devanagari+Hindi&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="/styles.css">
+<style>
+  .about p{font-size:16px;line-height:1.6;margin:0}
+  .about p + p{margin-top:10px}
+  .about .panel{margin-bottom:14px}
+  .about h3 .tag{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-left:8px;font-weight:600}
+  .psmap{width:100%;border-collapse:collapse;font-size:15px}
+  .psmap th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:2px solid var(--line)}
+  .psmap td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.5}
+  .psmap tr:last-child td{border-bottom:0}
+  .psmap td:first-child{white-space:nowrap;font-weight:700;color:var(--jade)}
+  .psmap .where{color:var(--muted);font-size:14px}
+  .psmap .yes{color:var(--jade);font-weight:700}
+  .psmap .part{color:#7A5310;font-weight:700}
+  .psmap .mock{color:var(--vermilion);font-weight:700}
+  .demo ol{margin:0;padding-left:22px;font-size:15.5px;line-height:1.65}
+  .demo li{margin-bottom:6px}
+  .demo b{color:var(--jade)}
+  .tablewrap{overflow-x:auto}
+  .toc{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+  .toc a{font-size:13px;font-weight:700;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none}
+</style>
 </head>
 <body>
 <main class="stage top">
-  <div class="doc" style="max-width:820px">
+  <div class="doc about" style="max-width:860px">
     <div class="dcard">
       <div class="dhead">
         <span class="hic"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20c-4.5 0-8-2.8-8-6 0-1 .4-1.9 1-2.6 1.6.4 3 1.3 4 2.4"/><path d="M12 20c4.5 0 8-2.8 8-6 0-1-.4-1.9-1-2.6-1.6.4-3 1.3-4 2.4"/><path d="M12 20c-2.4-1.8-4-4.4-4-7 0-2.4 1.5-4.8 4-6.8 2.5 2 4 4.4 4 6.8 0 2.6-1.6 5.2-4 7Z"/></svg></span>
         <div><h2>How MediKiosk works</h2><div class="sub">SIH26047 · Ministry of Ayush · All India Institute of Ayurveda</div></div>
       </div>
       <div class="dbody">
-        <div class="panel" style="margin-bottom:14px">
+        <nav class="toc" aria-label="Sections">
+          <a href="#loop">The loop</a><a href="#map">Against the problem statement</a><a href="#demo">Three-minute demo</a>
+          <a href="#real">Real in this build</a><a href="#mocked">Mocked, and why</a><a href="#languages">Languages</a>
+          <a href="#terms">Terms</a><a href="#privacy">Privacy</a>
+        </nav>
+
+        <div class="panel" id="loop">
           <h3>The loop</h3>
-          <p style="font-size:16.5px;line-height:1.6;margin:0">A patient answers at the kiosk by speaking or tapping and scans
-          the paper they already carry. The system assembles a structured history and puts it on the doctor's screen before the
-          patient sits down. The doctor verifies it, amends anything wrong, and prescribes — and that becomes the baseline the
-          next follow-up interview starts from.</p>
+          <p>A patient answers at the kiosk by speaking or tapping, in their own language, and scans the paper they
+          already carry. The system assembles a structured history and puts it on the doctor's screen before the
+          patient sits down. The patient hears their own history read back and confirms it. The doctor verifies,
+          amends anything wrong, is warned about drug interactions as they prescribe, and what they write becomes
+          the baseline the next follow-up starts from.</p>
         </div>
-        <div class="panel" style="margin-bottom:14px">
-          <h3>The token slip</h3>
-          <p style="font-size:16px;line-height:1.6;margin:0">The patient leaves with a token, a department and a
-          QR code, and can print it. Scanning the code opens that patient's case on the consultation console, so the
-          registration desk scans instead of typing &mdash; check-in is where an OPD queue actually stalls. The code
-          is eight characters rather than a database id, so the symbol stays coarse enough to scan off a thermal
-          print, and it is printed as text as well in case the QR is smudged. The encoder is written into the app
-          &mdash; no library, no CDN &mdash; because a kiosk may be on a network that cannot reach one, and it was
-          checked against a reference implementation and by decoding the printed slip back, not by eye.</p>
+
+        <div class="panel" id="map">
+          <h3>Against the problem statement <span class="tag">SIH26047 §3.2–3.4</span></h3>
+          <p style="margin-bottom:10px">Every line the statement asks for, what this build does about it, and where to see it.
+          <span class="yes">Built</span> means working in this deployment; <span class="part">Partial</span> means working with a
+          stated limit; <span class="mock">Mocked</span> means the code path exists but the outside system is not connected.</p>
+          <div class="tablewrap"><table class="psmap">
+            <thead><tr><th>Module</th><th>Asked for</th><th>Status</th><th>Where to see it</th></tr></thead>
+            <tbody>
+              <tr><td>A</td><td>Adaptive questioning branching on the chief complaint</td><td class="yes">Built</td><td class="where">Kiosk → choose "cough" or "skin problem"; the follow-up block changes. Works in all seven languages.</td></tr>
+              <tr><td>A</td><td>Dual-mode input — every question by speaking or tapping</td><td class="yes">Built</td><td class="where">Mic on every open question; spoken "next / back / repeat" commands.</td></tr>
+              <tr><td>A</td><td>AYUSH history mode — Dashavidha Pariksha, Agni, Koshtha, Ahara-Vihara</td><td class="yes">Built</td><td class="where">Choose Ayurvedic or Both at the system screen; all ten parameters, Vikriti kept apart from Prakriti.</td></tr>
+              <tr><td>A</td><td>Red-flag detection with immediate alert to triage staff</td><td class="yes">Built</td><td class="where">Red button, or a red-flag answer: token turns P-, case tops the queue, a tone and banner on the console, one SMS to <code>TRIAGE_PHONE</code>.</td></tr>
+              <tr><td>A</td><td>Indian-language ASR (Bhashini / AI4Bharat)</td><td class="part">Partial</td><td class="where">Browser speech recognition today, all seven languages; Bhashini needs an API key and is the planned swap.</td></tr>
+              <tr><td>A</td><td>Text-to-speech for audio prompts</td><td class="yes">Built</td><td class="where">Every screen reads aloud — heading, hints, every option — in all seven languages, on any machine.</td></tr>
+              <tr><td>B</td><td>OCR of printed and handwritten prescriptions, lab reports, discharge summaries</td><td class="yes">Built</td><td class="where">Kiosk → scan; a handwritten Ayurvedic prescription is read line by line, doses included.</td></tr>
+              <tr><td>B</td><td>Intelligent extraction — diagnoses, medicines with dose, values with reference ranges</td><td class="yes">Built</td><td class="where">Console → open a document.</td></tr>
+              <tr><td>B</td><td>Chronological organisation into a timeline</td><td class="yes">Built</td><td class="where">Ordered by the date printed on the paper; undated papers are said to be undated, not guessed into place.</td></tr>
+              <tr><td>B</td><td>Abnormal-value highlighting</td><td class="yes">Built</td><td class="where">Out-of-range values in red on the console and in the patient's own record.</td></tr>
+              <tr><td>B</td><td>Potential drug interactions</td><td class="yes">Built</td><td class="where">Console: an amber panel — scanned papers + reported medicines + today's prescription as you type it. Curated rules, allopathic and Ayurvedic pairs.</td></tr>
+              <tr><td>C</td><td>Standard clinical format: CC → HPI → past → drugs/allergy → family → personal → ROS → investigations</td><td class="yes">Built</td><td class="where">Console → structured history.</td></tr>
+              <tr><td>C</td><td>Editable and verifiable — a draft the physician accepts, amends or rejects</td><td class="yes">Built</td><td class="where">Accept as written, or amend and accept; attributed to the clinician.</td></tr>
+              <tr><td>C</td><td>Bilingual output — patient-facing audio confirmation in local language; physician summary in English</td><td class="yes">Built</td><td class="where">Kiosk "Is this right?" screen: "In your language" block with a Listen button.</td></tr>
+              <tr><td>D</td><td>ABHA authentication</td><td class="mock">Mocked</td><td class="where">ABHA numbers are validated by format and generated locally; issuing them needs ABDM sandbox credentials.</td></tr>
+              <tr><td>D</td><td>Consent-first: granular, revocable, with audio explanation</td><td class="yes">Built</td><td class="where">Consent screen read aloud; four separate permissions; "Withdraw consent" on the patient dashboard locks every clinician out of that visit.</td></tr>
+              <tr><td>D</td><td>Secure processing within the platform</td><td class="part">Partial</td><td class="where">Voice never leaves the kiosk as audio; document and summary text go to a model API over TLS. A deployment would point the same code at a hospital-hosted model.</td></tr>
+              <tr><td>D</td><td>Session termination — temporary data cleared after submission</td><td class="yes">Built</td><td class="where">Finish clears the screen; a patient who walks away is asked at 90 s and the screen wipes itself 30 s later.</td></tr>
+              <tr><td>D</td><td>FHIR push to HIS/EMR, linked to the ABHA PHR</td><td class="mock">Mocked</td><td class="where">A real FHIR R4 document Bundle — Composition, Patient, Practitioner, Encounter, Condition (ICD-10 + NAMASTE), Observation, DocumentReference, Consent — downloadable from the console. Only the transport is mocked, pending sandbox access.</td></tr>
+              <tr><td>Access.</td><td>Audio-guided mode; large text / high contrast; multilingual UI</td><td class="yes">Built</td><td class="where">Accessibility screen: three switches. Sign-language avatar (stretch goal) not attempted.</td></tr>
+              <tr><td>Dash.</td><td>Personal login ID and password; patients keep and see their records</td><td class="yes">Built</td><td class="where">Login ID sent by SMS; "My records" shows every visit, document, diagnosis and prescription, read-only.</td></tr>
+              <tr><td>Journey</td><td>Identify → Converse → Scan → Summarise &amp; route → Consult</td><td class="yes">Built</td><td class="where">Token slip with QR; department routing to a per-department queue; clinician console with queue, case, home.</td></tr>
+            </tbody>
+          </table></div>
         </div>
-        <div class="panel" style="margin-bottom:14px">
-          <h3>Seven languages, the whole interview</h3>
-          <p style="font-size:16px;line-height:1.6;margin:0">Hindi, English, Marathi, Gujarati, Punjabi, Tamil and
-          Telugu &mdash; not the buttons, the whole interview: every question, every option, every consent line. A
-          language appears on the first screen only when its translation file is actually complete, and a string
-          nobody has translated shows <b>English rather than Hindi</b>, because a Tamil reader cannot tell a Hindi
-          sentence from a bug. Sanskrit terms &mdash; Prakriti, Vikriti, Agni, Koshtha &mdash; are transliterated
-          into the reader's script rather than translated, because a physician uses them by name. Red-flag detection
-          and department routing follow the languages too: the routing keywords are derived from the translation
-          files themselves, so a phrase corrected by a native speaker corrects the router at the same time.
-          <b>These translations were produced with machine assistance and have not yet been checked by native
-          speakers</b> &mdash; a review sheet per language is generated for exactly that, and it should be done
-          before any pilot.</p>
+
+        <div class="panel demo" id="demo">
+          <h3>A three-minute demo</h3>
+          <ol>
+            <li><b>Kiosk, Marathi.</b> Tap मराठी. Tap the speaker: the screen is read aloud. Mobile number → the code is shown on screen (no gateway in demo mode) → name, age → account created, login ID on screen.</li>
+            <li><b>Consent</b> is read out. Leave all four on. First visit → Both systems.</li>
+            <li><b>Answer three questions</b> by tapping; say one answer into the mic. Pick "cough" as the complaint and show the follow-up questions change.</li>
+            <li><b>Scan</b> the sample handwritten prescription (<code>tools/bench-samples/</code>). Watch it come back labelled and dated.</li>
+            <li><b>"Is this right?"</b> — tap Listen: the patient hears their history in Marathi. Confirm. Token slip with QR.</li>
+            <li><b>Console</b> (second screen): the case is already on the queue, department assigned. Open it: structured history, the scanned paper read line by line, abnormal values, the amber interaction panel. Type "Diclofenac" in the prescription — the panel updates. Save reading for height and weight. Mark assessed.</li>
+            <li><b>Download FHIR R4 bundle.</b> Open the JSON. Then, on the kiosk, sign in with the login ID → My records → Withdraw consent → the console can no longer open that visit.</li>
+            <li><b>Emergency:</b> from any screen press the red button — the console sounds and shows the banner, the token turns P-.</li>
+          </ol>
         </div>
-        <div class="panel" style="margin-bottom:14px">
-          <h3>Where the patient is sent</h3>
-          <p style="font-size:16px;line-height:1.6;margin:0">A hospital is a set of departments, so an intake that cannot name one
-          has only moved the queue rather than shortened it. Every completed interview is routed to exactly one clinic &mdash; a
-          keyword router runs on every intake and never fails, and the AI summary may overrule it where it has better reason. A
-          clinician registers as a specialist or as a general clinician, and a specialist's queue is their own department, so the
-          dentist opens the console and sees dental cases. Three things are never filtered away: anything flagged urgent, anything
-          not yet routed, and nothing at all for a general clinician. A specialist can still lift the filter to cover a colleague,
-          and that view is written to the audit trail. The routing is a suggestion &mdash; any clinician can reassign a patient to
-          another department, and who moved them and why stays on the record.</p>
-        </div>
-        <div class="panel" style="margin-bottom:14px">
+
+        <div class="panel" id="real">
           <h3>Real in this build</h3>
-          <p style="font-size:16px;line-height:1.6;margin:0">Three ways to identify — mobile, ABHA number, or Aadhaar with a real
-          Verhoeff checksum · <b>a personal login ID and password</b> layered on top of the code, so a patient can return to
-          <b>their own dashboard</b> of past visits, documents and summaries, read-only · adaptive question flow with first-visit, follow-up, proxy and emergency branching · voice input,
-          spoken prompts and spoken navigation commands in every language, with a runtime check that says so when a
-          machine has no voice for one · large-text and high-contrast accessibility modes · a literacy-free body
-          map · <b>all ten Dashavidha Pariksha parameters</b> with Vikriti separated from Prakriti, plus Agni, Koshtha and
-          Ahara-Vihara · document capture with AI extraction of diagnoses, medicines and lab values ·
-          <b>a chronological document timeline</b> built from the date printed on each paper, with anything unreadable marked
-          undated rather than guessed into position · AI clinical summary with
-          assessment, differentials and suggested investigations · ICD-10 and NAMASTE coding suggestions · rule-based red-flag
-          triage · real SMS delivery when a gateway is configured · clinician registration with HPR ID and approval gating ·
-          live queue · <b>automatic department routing</b> with per-department queues, an audited override and clinician
-          reassignment · single-action history verification with amend · prescription write-back · granular DPDP consent ·
-          full audit trail.</p>
+          <p>Three ways to identify — mobile, ABHA number, or Aadhaar with a real Verhoeff checksum · a personal login ID and
+          password so a patient can return to their own dashboard of past visits, documents and summaries · adaptive
+          question flow with first-visit, follow-up, proxy and emergency branching, in all seven languages · voice input,
+          spoken prompts for every screen and spoken navigation commands in every language, with a server voice for any
+          machine that has none of its own · audio-guided, large-text and high-contrast modes · a literacy-free body map ·
+          all ten Dashavidha Pariksha parameters with Vikriti separated from Prakriti, plus Agni, Koshtha and Ahara-Vihara ·
+          document capture with AI extraction of diagnoses, medicines and lab values · a chronological document timeline ·
+          AI clinical summary with assessment, differentials and suggested investigations, and a plain recap in the
+          patient's language they can hear · ICD-10 and NAMASTE coding suggestions · rule-based red-flag triage with an
+          SMS and a console alarm · curated drug-interaction check, live as the prescription is typed · height, weight and
+          BMI taken at the desk · real SMS delivery when a gateway is configured · clinician registration with HPR ID and
+          approval gating · a clinician home with today's numbers, next up, my patients and record search · live queue ·
+          automatic department routing with per-department queues, audited override and reassignment · single-action
+          history verification with amend · prescription write-back · granular and revocable DPDP consent · idle wipe ·
+          FHIR R4 document bundles · rate limits on every endpoint that spends a quota · full audit trail.</p>
+          <p>The models behind the summary and the document reader run on free tiers — Groq first, Mistral as fallback —
+          and the app degrades to an assembled summary and stored-unread papers, saying so on screen, if neither answers.</p>
         </div>
-        <div class="panel" style="margin-bottom:14px">
+
+        <div class="panel" id="mocked">
           <h3>Mocked, and why</h3>
-          <p style="font-size:16px;line-height:1.6;margin:0">ABHA numbers are generated locally in the correct format, and the
-          FHIR push to a hospital HIS is built but not transmitted, because ABDM sandbox credentials require an application and an
-          approval period. Speech recognition in all seven languages runs on the browser's own Web Speech API, which is Chrome-only; a
-          deployment would use Bhashini, and that needs a key. Everything else — including SMS — is
-          real once configured.</p>
+          <p>ABHA numbers are generated locally in the correct format, and the FHIR bundle is built for real but not
+          transmitted, because ABDM sandbox credentials require an application and an approval period. Speech recognition
+          runs on the browser's own Web Speech API, which is Chrome-only; a deployment would use Bhashini, and that needs a
+          key. The drug-interaction check is a short curated table, not a formulary. The translations into Marathi,
+          Gujarati, Punjabi, Tamil and Telugu are machine-assisted and under native-speaker review. The complaint-specific
+          question sets follow standard history-taking structure and need a vaidya's review before use on real patients.
+          Everything else — including SMS — is real once configured.</p>
         </div>
+
+        <div class="panel" id="languages">
+          <h3>Seven languages, the whole interview</h3>
+          <p>Hindi, English, Marathi, Gujarati, Punjabi, Tamil and Telugu — not the buttons, the whole interview: every
+          question, every option, every consent line, every notice. A string nobody has translated shows English rather
+          than Hindi, because a Tamil reader cannot tell a Hindi sentence from a bug. Sanskrit terms — Prakriti, Vikriti,
+          Agni, Koshtha — are transliterated into the reader's script rather than translated, because a physician uses
+          them by name. Red-flag detection, department routing and the complaint classifier follow the languages too. A
+          review sheet per language lets a native speaker correct any line and send the corrections back as text.</p>
+        </div>
+
+        <div class="panel" id="terms">
+          <h3>Terms of use <span class="tag">prototype</span></h3>
+          <p>MediKiosk is a Smart India Hackathon prototype for problem statement SIH26047. It is not a medical device and
+          not a live clinical service. Nothing it shows is a diagnosis: the summary, the department suggestion, the coding
+          and the interaction notices are drafts for a registered clinician to confirm or reject. By continuing, you agree
+          that the information you enter is used only to prepare a history for the clinician who sees you at this visit,
+          under the permissions you choose on the consent screen, and that this prototype may be reset at any time.</p>
+        </div>
+
+        <div class="panel" id="privacy">
+          <h3>Privacy <span class="tag">DPDP Act 2023</span></h3>
+          <p><b>What is collected.</b> Your name, age, sex, mobile number, the answers you give, the papers you scan, and
+          the height and weight recorded. <b>What is not.</b> Your voice: speech is turned into text on the kiosk and the
+          audio is never stored. <b>Who sees it.</b> Only the clinician seeing you at this visit, and only while you allow
+          it — every time a record is opened or searched, the clinician's name is written to an audit trail.
+          <b>Where it goes.</b> The text of your answers and your scanned papers is sent to a model service to be read and
+          summarised; the spoken prompts you hear are fetched from a speech service, but never your own words. <b>Your
+          control.</b> Every permission on the consent screen can be turned off and you are still seen. From your dashboard
+          you can withdraw consent for any past visit; no clinician can open it after that, and you can allow it again.
+          <b>Retention.</b> A kiosk screen left alone clears itself within two minutes. This prototype's records may be
+          deleted at any time.</p>
+        </div>
+
         <div class="panel">
           <h3>Why this is not what already exists</h3>
-          <p style="font-size:16px;line-height:1.6;margin:0">Hospital registration systems capture demographics only. Health apps
-          assume a smartphone, literacy and enrolment before the visit. Nurse-led history desks do not scale to five thousand
-          patients a day. None of them digitise the paper the patient is already holding. This does both — deep structured history
-          and document digitisation — before the encounter begins.</p>
+          <p>Hospital registration systems capture demographics only. Health apps assume a smartphone, literacy and
+          enrolment before the visit. Nurse-led history desks do not scale to five thousand patients a day. None of them
+          digitise the paper the patient is already holding. This does both — deep structured history and document
+          digitisation, in the patient's language, read back to them — before the encounter begins.</p>
         </div>
         <a class="btn ghost" href="/" style="margin-top:18px;text-decoration:none">← Back</a>
       </div>
