@@ -350,34 +350,48 @@ window.COMPLAINT_CATEGORIES = [
       "acne", "pimple", "rash", "itch", "itching", "skin", "eczema", "boil", "hives",
       "psoriasis", "fungal", "ringworm", "hair fall", "hairfall", "dandruff", "patch",
       "मुँहासे", "मुहासे", "दाने", "खुजली", "त्वचा", "चर्म", "फुंसी", "चकत्ते", "बाल झड़",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "त्वचा", "खाज", "पुरळ", "ચામડી", "ખંજવાળ", "ફોલ્લી", "ਚਮੜੀ", "ਖੁਜਲੀ", "ਧੱਫੜ", "தோல்", "அரிப்பு", "தடிப்பு", "చర్మం", "దురద", "దద్దుర్లు",
     ] },
   { id: "resp", keywords: [
       "cough", "cold", "breath", "breathless", "breathing", "wheez", "asthma", "chest congestion",
       "sputum", "phlegm", "sneez", "throat",
       "खांसी", "खाँसी", "सर्दी", "जुकाम", "ज़ुकाम", "साँस", "सांस", "दमा", "बलगम", "छींक",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "खोकला", "श्वास", "दम", "ઉધરસ", "શ્વાસ", "ਖੰਘ", "ਸਾਹ", "இருமல்", "மூச்சு", "దగ్గు", "ఆయాసం", "శ్వాస",
     ] },
   { id: "gi", keywords: [
       "stomach", "abdomen", "belly", "acidity", "gas", "vomit", "nausea", "loose motion",
       "diarrh", "constipat", "indigestion", "appetite", "ulcer", "piles", "bloat",
       "पेट", "गैस", "अम्ल", "उल्टी", "जी मिचला", "दस्त", "कब्ज", "बदहजमी", "भूख", "बवासीर",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "पोट", "उलटी", "जुलाब", "बद्धकोष्ठता", "પેટ", "ઊલટી", "ઝાડા", "કબજિયાત", "ਪੇਟ", "ਉਲਟੀ", "ਦਸਤ", "ਕਬਜ਼", "வயிறு", "வாந்தி", "வயிற்றுப்போக்கு", "మలబద్ధకం", "కడుపు", "వాంతి", "విరేచనాలు",
     ] },
   { id: "fever", keywords: [
       "fever", "temperature", "chills", "shivering", "malaria", "typhoid", "viral",
       "बुख़ार", "बुखार", "ज्वर", "ठंड लग", "कंपकंपी",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "ताप", "તાવ", "ਬੁਖ਼ਾਰ", "காய்ச்சல்", "జ్వరం",
     ] },
   { id: "cardiac", keywords: [
       "chest pain", "chest tight", "heart", "palpitation", "heart beat", "heartbeat",
       "सीने में दर्द", "छाती में दर्द", "दिल", "धड़कन", "जकड़न",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "छातीत", "धडधड", "છાતી", "ધબકારા", "ਛਾਤੀ", "ਧੜਕਣ", "நெஞ்சு", "இதயம்", "ఛాతీ", "గుండె",
     ] },
   { id: "neuro", keywords: [
       "headache", "head ache", "migraine", "dizzy", "giddy", "vertigo", "faint", "numb",
       "tingling", "weakness one side", "fits", "seizure", "memory",
       "सिर दर्द", "सिरदर्द", "माइग्रेन", "चक्कर", "बेहोश", "सुन्न", "झुनझुनी", "दौरा", "मिर्गी",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "डोकेदुखी", "चक्कर", "માથાનો દુખાવો", "ચક્કર", "ਸਿਰ ਦਰਦ", "ਚੱਕਰ", "தலைவலி", "தலைச்சுற்றல்", "తలనొప్పి", "తల తిరగడం",
     ] },
   { id: "pain", keywords: [
       "pain", "ache", "joint", "knee", "back", "shoulder", "neck", "swelling", "stiff",
       "arthritis", "sprain", "muscle", "cramp", "हड्डी",
       "दर्द", "जोड़", "घुटन", "घुटने", "कमर", "पीठ", "कंधा", "गर्दन", "सूजन", "अकड़", "गठिया", "मांसपेशी",
+      // Marathi · Gujarati · Punjabi · Tamil · Telugu — for a complaint typed rather than tapped
+      "दुख", "सांधे", "गुडघे", "कंबर", "દુખ", "સાંધા", "ઘૂંટણ", "કમર", "ਦਰਦ", "ਜੋੜ", "ਗੋਡੇ", "ਕਮਰ", "வலி", "மூட்டு", "முழங்கால்", "நொப்பி", "నొప్పి", "కీళ్ళ", "మోకాలు", "నడుము",
     ] },
 ];
 

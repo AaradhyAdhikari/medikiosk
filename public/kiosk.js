@@ -98,9 +98,21 @@ function esc(s) {
    answering "acne" at question one changes what question four will be. The
    complaint stays at index 0 whatever happens, which is what keeps S.step
    meaningful while the tail of the list changes underneath it. */
+/* What the patient said is wrong with them, in a form the classifier can
+   read. A tapped chip is stored in the patient's own language — "श्वास
+   घेण्यास त्रास" — and the category keywords are English and Hindi, so for
+   five of the seven languages the follow-up questions never fired. Each chip
+   is mapped back to its English label first; free text goes through as
+   typed, and the categories carry native stems for that. */
 function complaintText() {
   var a = S.answers["complaint"];
-  var main = Array.isArray(a) ? a.join(" ") : (a || "");
+  var vals = Array.isArray(a) ? a : (a ? [a] : []);
+  var q = null;
+  for (var i = 0; i < window.CLINICAL.length; i++) if (window.CLINICAL[i].id === "complaint") q = window.CLINICAL[i];
+  var main = vals.map(function (v) {
+    var chip = q && (q.chips || []).filter(function (c) { return L(c.hi, c.en) === v || c.en === v || c.hi === v; })[0];
+    return chip ? chip.en : v;
+  }).join(" ");
   return (main + " " + (S.answers["_other_complaint"] || "")).trim();
 }
 
@@ -425,6 +437,26 @@ document.getElementById("btn-help").onclick = async function () {
     go("red");
   }
 };
+/* A red-flag ANSWER — "chest pain", "breathlessness", the patient's own
+   words matching the screen — must raise the same alarm as the red button.
+   It used to flip a local flag and show the priority screen, which then told
+   the patient they were at the top of the clinicians' list while the queue,
+   the token and the triage phone had heard nothing. Same endpoint now; the
+   answer stays recorded so the summary still carries it. */
+async function raiseFromAnswer(q) {
+  S.redBack = "q";
+  S.visit.redFlag = true;
+  S.busy = true;
+  try {
+    var r = await api("/api/visits/" + S.visit.id + "/emergency", { on: true });
+    if (r && r.visit) S.visit.token = r.visit.token;
+    S.emergencyRaised = true;
+  } catch (e) {
+    S.emergencyRaised = false;               // the screen will say so rather than pretend
+  }
+  S.busy = false;
+  go("red");
+}
 document.getElementById("btn-home").onclick = function () { location.href = "/"; };
 document.getElementById("btn-a11y").onclick = function () { S.beforeA11y = S.screen; go("a11y"); };
 
@@ -1604,7 +1636,7 @@ function scQuestion() {
   }
 
   nx.onclick = function () {
-    if (window.isRedFlag(S.answers[q.id]) || window.isRedFlag(S.answers["_other_" + q.id])) { S.visit.redFlag = true; return go("red"); }
+    if (window.isRedFlag(S.answers[q.id]) || window.isRedFlag(S.answers["_other_" + q.id])) return raiseFromAnswer(q);
     S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q"));
   };
   document.getElementById("bk").onclick = function () { S.step === 0 ? go("system") : (S.step--, go("q")); };
