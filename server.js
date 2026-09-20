@@ -1064,6 +1064,28 @@ function reconcileDepartment(modelDept, ruleDept, system) {
    reader without booting the kiosk. Everything below is a binding. */
 const AI = require("./ai").configure(process.env, { serverless: SERVERLESS });
 const { checkInteractions } = require("./interactions");
+
+/* Module B: possible drug interactions, from every medicine this visit has
+   seen — each scanned paper, what the patient said they take, the summary's
+   medication line as the physician may have amended it, and what the
+   physician is prescribing today. Run at submit and again whenever any of
+   those change, so a clinician typing "diclofenac" for a patient on
+   Ecosprin is told before they finish the line. Rule-based and narrow. */
+function interactionsFor(visit) {
+  const docs = chronological(store.documents.filter((d) => d.visitId === visit.id));
+  const sm = visit.summary || {};
+  const sources = docs.map((d) => ({
+    label: d.label || "Document",
+    text: [(d.extracted && d.extracted.summary) || ""].concat((d.extracted && d.extracted.findings) || []).join(" ; "),
+  }));
+  sources.push({
+    label: "Reported at intake",
+    text: [sm.medications || ""].concat(
+      (visit.answers || []).map((a) => [a.answer, a.customAnswer].flat().filter(Boolean).join(" "))).join(" ; "),
+  });
+  if (visit.prescription) sources.push({ label: "Today's prescription", text: visit.prescription });
+  return checkInteractions(sources);
+}
 const { buildBundle } = require("./fhir");
 const aiOn = () => AI.on;
 const askAI = AI.ask;
@@ -2028,6 +2050,18 @@ async function api(req, res, pathname) {
     return ok(res, { document: publicDoc(doc), readStatus, readError });
   }
 
+  // ---- what would the interactions be if this were prescribed? No save.
+  m = pathname.match(/^\/api\/visits\/([\w-]+)\/interactions$/);
+  if (m && method === "POST") {
+    const doc = doctorOf(req);
+    if (!doc) return bad(res, 401, "Sign in required.");
+    const visit = store.visits.find((v) => v.id === m[1]);
+    if (!visit) return bad(res, 404, "Not found.");
+    const { prescription } = await readBody(req);
+    const trial = Object.assign({}, visit, { prescription: String(prescription || "") });
+    return ok(res, { interactions: interactionsFor(trial) });
+  }
+
   // ---- the visit as a FHIR R4 document bundle (what the ABDM push carries)
   m = pathname.match(/^\/api\/visits\/([\w-]+)\/fhir$/);
   if (m && method === "GET") {
@@ -2148,22 +2182,9 @@ async function api(req, res, pathname) {
     const redFlag = flagged || modelFlags.length > 0;
     if (redFlag && modelFlags.length === 0) summary.redFlags = ["Patient reported a potentially urgent symptom at intake."];
 
-    /* Module B: possible drug interactions, from every medicine the kiosk
-       has seen — each scanned paper and what the patient said they take.
-       Rule-based and deliberately narrow; the physician decides. */
-    summary.interactions = checkInteractions(
-      docs.map((d) => ({
-        label: d.label || "Document",
-        text: [(d.extracted && d.extracted.summary) || ""].concat((d.extracted && d.extracted.findings) || []).join(" ; "),
-      })).concat([{
-        label: "Reported at intake",
-        text: [summary.medications || ""].concat(
-          answers.map((a) => [a.answer, a.customAnswer].flat().filter(Boolean).join(" "))).join(" ; "),
-      }])
-    );
-
     visit.answers = answers;
     visit.summary = summary;
+    summary.interactions = interactionsFor(visit);
     visit.redFlag = redFlag;
     visit.triage = redFlag ? (summary.triage === "URGENT" ? "URGENT" : "PRIORITY") : "ROUTINE";
     visit.status = "WAITING";
@@ -2390,6 +2411,9 @@ async function api(req, res, pathname) {
           redFlag: v.redFlag, example: !!v.example, submittedAt: v.submittedAt,
           chiefComplaint: (v.summary && v.summary.chiefComplaint) || "History recorded",
           patient: { name: p.name || "Patient", ageYears: p.ageYears || null },
+          vitals: { heightCm: (v.vitals && v.vitals.heightCm) || p.heightCm || null,
+                    weightKg: (v.vitals && v.vitals.weightKg) || p.weightKg || null,
+                    measured: !!(v.vitals && v.vitals.takenAt) },
           documentCount: store.documents.filter((d) => d.visitId === v.id).length,
           department: dept,
           departmentLabel: dept ? deptLabel(dept) : null,
@@ -2472,7 +2496,8 @@ async function api(req, res, pathname) {
     save(); // chronological() backfills dates onto older records; keep them
     return ok(res, {
       visit: Object.assign({}, visit, {
-        patient: { name: p.name || "Patient", ageYears: p.ageYears, sex: p.sex, abhaNumber: p.abhaNumber },
+        patient: { name: p.name || "Patient", ageYears: p.ageYears, sex: p.sex, abhaNumber: p.abhaNumber,
+                   heightCm: p.heightCm || null, weightKg: p.weightKg || null },
         documents: visitDocs.map(publicDoc),
       }),
     });
@@ -2489,7 +2514,23 @@ async function api(req, res, pathname) {
     if (body.status === "ASSESSED") { visit.status = "ASSESSED"; visit.assessedAt = now(); visit.clinicianId = s.cid; }
     if (body.status === "WAITING") { visit.status = "WAITING"; visit.assessedAt = null; }
     if (typeof body.diagnosis === "string") visit.diagnosis = body.diagnosis;
-    if (typeof body.prescription === "string") visit.prescription = body.prescription;
+    let recheck = false;
+    if (typeof body.prescription === "string" && body.prescription !== visit.prescription) { visit.prescription = body.prescription; recheck = true; }
+
+    /* Height and weight, taken when the patient comes in. The kiosk may have
+       them already (the patient estimates); a nurse's reading replaces it,
+       on the visit and on the patient's record for next time. */
+    if (body.vitals && typeof body.vitals === "object") {
+      const v = body.vitals;
+      const num = (x, lo, hi) => { const n = Number(x); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
+      visit.vitals = Object.assign({}, visit.vitals, {
+        heightCm: num(v.heightCm, 30, 250), weightKg: num(v.weightKg, 1, 400),
+        takenAt: now(), takenBy: s.cid,
+      });
+      const p = store.patients.find((x) => x.id === visit.patientId);
+      if (p) { if (visit.vitals.heightCm) p.heightCm = visit.vitals.heightCm; if (visit.vitals.weightKg) p.weightKg = visit.vitals.weightKg; }
+      logEvent("vitals_recorded", { visitId: visit.id, by: s.cid, heightCm: visit.vitals.heightCm, weightKg: visit.vitals.weightKg });
+    }
     if (typeof body.icd10 === "string") visit.icd10 = body.icd10;
     if (typeof body.namaste === "string") visit.namaste = body.namaste;
     if (typeof body.advice === "string") visit.advice = body.advice;
@@ -2511,6 +2552,7 @@ async function api(req, res, pathname) {
         if (typeof body.amendHistory[k] === "string") edits[k] = body.amendHistory[k];
       }
       visit.summary = Object.assign({}, visit.summary, edits);
+      if ("medications" in edits) recheck = true;
       visit.historyVerified = "amended";
       visit.verifiedBy = s.cid;
       visit.verifiedAt = now();
@@ -2543,6 +2585,11 @@ async function api(req, res, pathname) {
           visitId: visit.id, from, to, by: s.cid, reason: visit.departmentReassignReason,
         });
       }
+    }
+
+    if (recheck && visit.summary) {
+      visit.summary.interactions = interactionsFor(visit);
+      logEvent("interactions_rechecked", { visitId: visit.id, count: visit.summary.interactions.length });
     }
 
     if (body.pushToEmr) {

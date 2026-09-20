@@ -285,6 +285,15 @@ function rowHtml(v) {
     '<span class="badge ' + (v.visitType === "FOLLOW_UP" ? "haldi" : "jade") + '">' +
       (v.visitType === "FOLLOW_UP" ? "Follow-up" : v.visitType === "PROXY" ? "Proxy" : "First visit") + "</span>" +
     (v.documentCount ? '<span class="badge grey">' + v.documentCount + " doc</span>" : "") +
+    /* Height / weight at a glance. Grey when it is the patient's own estimate
+       from the kiosk, jade once a reading has been taken at the desk; a dash
+       means nobody has filled it in yet — the column to complete when the
+       patient comes in. */
+    (v.vitals && (v.vitals.heightCm || v.vitals.weightKg)
+      ? '<span class="badge ' + (v.vitals.measured ? "jade" : "grey") + ' mono" title="' +
+        (v.vitals.measured ? "Measured at the desk" : "Patient's own estimate at the kiosk — measure when they come in") + '">' +
+        (v.vitals.heightCm || "—") + "cm · " + (v.vitals.weightKg || "—") + "kg</span>"
+      : '<span class="badge haldi" title="Height and weight not recorded — fill in when the patient comes in">Ht/Wt —</span>') +
     (v.example ? '<span class="badge grey">example</span>' : "") +
     "</span></button>";
 }
@@ -434,6 +443,46 @@ async function patchVisit(body) {
   } catch (e) { alert(e.message); }
 }
 
+function interactionsPanel(s) {
+  if (!s.interactions || !s.interactions.length) return '<div id="ixn"></div>';
+  return '<div class="alert ixn" id="ixn" style="margin-bottom:16px">' +
+    '<div class="emghd">' + ICON("alert", 22) + "<b>POSSIBLE DRUG INTERACTIONS — for your attention</b></div>" +
+    '<ul style="margin:8px 0 0;padding-left:22px;font-size:15.5px;line-height:1.55">' +
+    s.interactions.map(function (i) {
+      return "<li><b>" + esc(i.a.matched) + "</b> + <b>" + esc(i.b.matched) + "</b>" +
+        '<span class="badge ' + (i.severity === "high" ? "vermilion" : i.severity === "moderate" ? "haldi" : "grey") +
+        '" style="margin-left:8px;padding:2px 8px;font-size:11px">' + esc(i.severity) + "</span>" +
+        "<br><span style=\"font-weight:500\">" + esc(i.note) + "</span>" +
+        '<br><small style="color:var(--muted)">' + esc(i.a.matched) + ": " + esc(i.a.where.join(", ")) +
+        " · " + esc(i.b.matched) + ": " + esc(i.b.where.join(", ")) + "</small></li>";
+    }).join("") + "</ul>" +
+    '<p style="margin:10px 0 0;font-size:13px;color:var(--muted)">' +
+      "From the scanned papers, what the patient reported, and today's prescription as you type it. A short curated list of well-known pairs, not a formulary check." +
+    "</p></div>";
+}
+
+function bmiOf(h, w) {
+  h = Number(h); w = Number(w);
+  if (!(h > 0 && w > 0)) return null;
+  var b = w / Math.pow(h / 100, 2);
+  return { value: Math.round(b * 10) / 10,
+           band: b < 18.5 ? "underweight" : b < 23 ? "normal" : b < 25 ? "overweight" : "obese" };   // Asian-Indian cut-offs (ICMR)
+}
+function vitalsStrip(v) {
+  var vt = v.vitals || {};
+  var h = vt.heightCm || v.patient.heightCm || "", w = vt.weightKg || v.patient.weightKg || "";
+  var bmi = bmiOf(h, w);
+  var src = vt.takenAt ? "measured at the desk" : (h || w) ? "patient's own estimate at the kiosk" : "not recorded yet";
+  return '<div class="panel vitals" style="margin-bottom:16px">' +
+    '<div class="vrow">' +
+      '<label>Height <input class="field mono" id="vh" inputmode="decimal" placeholder="cm" value="' + esc(h) + '"> cm</label>' +
+      '<label>Weight <input class="field mono" id="vw" inputmode="decimal" placeholder="kg" value="' + esc(w) + '"> kg</label>' +
+      '<div class="bmi" id="bmi">' + (bmi ? "BMI <b>" + bmi.value + "</b> · " + bmi.band : "BMI —") + "</div>" +
+      '<button class="btn ghost" id="vsave" style="font-size:14px;padding:9px 14px">Save reading</button>' +
+      '<span class="vsrc" id="vsrc">' + esc(src) + "</span>" +
+    "</div></div>";
+}
+
 function prov(kind) {
   return '<span class="prov ' + kind + '">' + (kind === "voice" ? ICON("mic",13) + " said" : kind === "doc" ? ICON("document",13) + " report" : ICON("hand",13) + " tapped") + "</span>";
 }
@@ -548,6 +597,10 @@ function renderCase() {
         docs.length + " document(s)" + (s.triage ? " · triage: " + esc(String(s.triage).toLowerCase()) : "") + "</span>" +
       "</div>" +
 
+      /* Height and weight, filled in when the patient comes in. What the kiosk
+         has is the patient's own estimate; a reading taken here replaces it. */
+      vitalsStrip(v) +
+
       (s.redFlags && s.redFlags.length
         ? '<div class="alert emg" style="margin-bottom:16px">' +
           '<div class="emghd">' + ICON("alert", 26) + "<b>EMERGENCY — FLAGGED AT INTAKE</b></div>" +
@@ -561,22 +614,7 @@ function renderCase() {
       /* Possible interactions between what the papers say and what the
          patient says they take. Rule-based, narrow, and worded as "worth a
          look" — the physician decides, as with everything else on this page. */
-      (s.interactions && s.interactions.length
-        ? '<div class="alert ixn" style="margin-bottom:16px">' +
-          '<div class="emghd">' + ICON("alert", 22) + "<b>POSSIBLE DRUG INTERACTIONS — for your attention</b></div>" +
-          '<ul style="margin:8px 0 0;padding-left:22px;font-size:15.5px;line-height:1.55">' +
-          s.interactions.map(function (i) {
-            return "<li><b>" + esc(i.a.matched) + "</b> + <b>" + esc(i.b.matched) + "</b>" +
-              '<span class="badge ' + (i.severity === "high" ? "vermilion" : i.severity === "moderate" ? "haldi" : "grey") +
-              '" style="margin-left:8px;padding:2px 8px;font-size:11px">' + esc(i.severity) + "</span>" +
-              "<br><span style=\"font-weight:500\">" + esc(i.note) + "</span>" +
-              '<br><small style="color:var(--muted)">' + esc(i.a.matched) + ": " + esc(i.a.where.join(", ")) +
-              " · " + esc(i.b.matched) + ": " + esc(i.b.where.join(", ")) + "</small></li>";
-          }).join("") + "</ul>" +
-          '<p style="margin:10px 0 0;font-size:13px;color:var(--muted)">' +
-            "From the scanned papers and what the patient reported. A short curated list of well-known pairs, not a formulary check." +
-          "</p></div>"
-        : "") +
+      interactionsPanel(s) +
 
       '<div class="split"><div>' +
         '<div class="panel"><h3>Structured history · AI draft, you verify</h3>' +
@@ -744,6 +782,29 @@ function renderCase() {
   var reopen = document.getElementById("reopen");
   if (reopen) reopen.onclick = function () { patchVisit({ status: "IN_CONSULT" }); };
   document.getElementById("emr").onclick = function () { patchVisit({ pushToEmr: true }); };
+  var vh = document.getElementById("vh"), vw = document.getElementById("vw");
+  function liveBmi() {
+    var b = bmiOf(vh.value, vw.value);
+    document.getElementById("bmi").innerHTML = b ? "BMI <b>" + b.value + "</b> · " + b.band : "BMI —";
+  }
+  vh.oninput = liveBmi; vw.oninput = liveBmi;
+  document.getElementById("vsave").onclick = function () {
+    patchVisit({ vitals: { heightCm: vh.value, weightKg: vw.value } });
+  };
+  /* The interaction panel answers the prescription as it is typed: a
+     second's pause after the last keystroke, one request, no save. */
+  var rxBox = document.getElementById("rx"), rxT = null;
+  rxBox.oninput = function () {
+    clearTimeout(rxT);
+    rxT = setTimeout(async function () {
+      try {
+        var r = await api("/api/visits/" + v.id + "/interactions", { prescription: rxBox.value });
+        D.visit.summary = Object.assign({}, D.visit.summary, { interactions: r.interactions });
+        var panel = document.getElementById("ixn");
+        if (panel) panel.outerHTML = interactionsPanel(D.visit.summary);
+      } catch (e) { /* the saved check still stands */ }
+    }, 900);
+  };
   document.getElementById("save").onclick = async function () {
     await patchVisit({
       diagnosis: document.getElementById("dx").value,

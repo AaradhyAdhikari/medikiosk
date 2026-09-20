@@ -701,3 +701,13 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .emgbanner{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:60;width:min(720px,calc(100% - 24px));display:flex;flex-direction:column;gap:6px}
 .emgbanner button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:14px 18px;border-radius:14px;border:3px solid var(--vermilion);background:var(--vermilion-soft);color:#7A2A1E;font-size:16px;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.25)}
 .emgbanner button.dismiss{border:0;background:rgba(11,31,26,.85);color:#fff;font-size:13px;padding:8px 14px;width:auto;align-self:flex-end;box-shadow:none}
+
+/* Height / weight strip on the doctor console. */
+.panel.vitals{padding:12px 16px}
+.vrow{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+.vrow label{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--muted)}
+.vrow .field{width:92px;padding:8px 10px;font-size:15px}
+.vrow .bmi{font-size:15px}
+.vrow .bmi b{font-size:17px}
+.vrow .vsrc{font-size:12.5px;color:var(--muted)}
+.vrow .btn{width:auto}

@@ -188,7 +188,8 @@ function checkInteractions(sources) {
   const seen = new Map();   // agent id -> { agent, where: Set(label) }
   for (const src of sources || []) {
     for (const ag of findAgents(src.text)) {
-      if (!seen.has(ag.id)) seen.set(ag.id, { agent: ag, where: new Set() });
+      if (!seen.has(ag.id)) seen.set(ag.id, { agent: ag, names: new Set(), where: new Set() });
+      seen.get(ag.id).names.add(ag.matched);
       seen.get(ag.id).where.add(src.label);
     }
   }
@@ -205,8 +206,10 @@ function checkInteractions(sources) {
         dedupe.add(key);
         out.push({
           severity: r.sev,
-          a: { id: x.agent.id, matched: x.agent.matched, where: [...x.where] },
-          b: { id: y.agent.id, matched: y.agent.matched, where: [...y.where] },
+          // Every spelling seen — "zerodol / diclofenac" when the paper says one
+          // and today's prescription the other.
+          a: { id: x.agent.id, matched: [...x.names].join(" / "), where: [...x.where] },
+          b: { id: y.agent.id, matched: [...y.names].join(" / "), where: [...y.where] },
           note: r.note,
         });
       }
