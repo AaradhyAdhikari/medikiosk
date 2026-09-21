@@ -780,10 +780,16 @@ function renderCase() {
 
       '<div class="split"><div>' +
         (s.bodyZone && window.BODYMAP
-          ? '<div class="panel bodypanel"><h3>Where the patient pointed</h3><div class="bodymini">' +
-            window.BODYMAP.svg({ selected: s.bodyZone, ariaLabel: "Body map" }) +
-            "<p><b>" + esc((window.BODYMAP.zoneByKey(s.bodyZone) || [])[2] || s.bodyZone) + "</b>" +
-            '<br><small style="color:var(--muted)">Touched by the patient on the kiosk figure</small></p></div></div>'
+          ? (function () {
+              var keys = (s.bodyZones && s.bodyZones.length ? s.bodyZones : [s.bodyZone]);
+              var nm = function (k) { return (window.BODYMAP.zoneByKey(k) || [])[2] || k; };
+              var views = window.BODYMAP.VIEWS.filter(function (vw) { return keys.some(function (k) { return window.BODYMAP.viewOf(k) === vw; }); });
+              return '<div class="panel bodypanel"><h3>Where the patient pointed</h3><div class="bodymini">' +
+                views.map(function (vw) { return window.BODYMAP.svg({ view: vw, sex: v.patient && v.patient.sex, selected: keys, ariaLabel: "Body map" }); }).join("") +
+                "<p><b>" + esc(nm(keys[0])) + "</b>" +
+                (keys.length > 1 ? "<br>also: " + esc(keys.slice(1).map(nm).join(", ")) : "") +
+                '<br><small style="color:var(--muted)">Touched by the patient on the kiosk figure</small></p></div></div>';
+            })()
           : "") +
         '<div class="panel"><h3>Structured history · AI draft, you verify</h3>' +
           (s.narrative && !D.amending

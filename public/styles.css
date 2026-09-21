@@ -746,8 +746,35 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 .kbar #btn-full.on{background:var(--haldi);color:#2C2622}
 
 /* The body figure wherever it is shown small and read-only. */
-.bodymini{display:flex;align-items:center;gap:14px}
+.bodymini{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .bodymini .bodyfig{width:88px;flex:none}
+.bodymini .bodyfig2{width:96px;flex:none}
+.bodymini p{flex:1;min-width:120px}
+
+/* ── the body map, on the illustrations ── */
+.bodyfig2{width:100%;max-width:300px;height:auto;display:block;overflow:visible}
+.bodyfig2 .side{font:700 12px "DM Sans",system-ui;fill:#8A7E74;letter-spacing:.1em}
+.bodyfig2 .zone{fill:var(--jade);fill-opacity:0;stroke:#fff;stroke-opacity:0;stroke-width:2;cursor:pointer;
+  transition:fill-opacity .18s,stroke-opacity .18s,transform .18s;transform-box:fill-box;transform-origin:center}
+.bodyfig2 .zone:hover,.bodyfig2 .zone:focus-visible{fill-opacity:.45;stroke-opacity:.9;outline:none;transform:scale(1.08)}
+.bodyfig2 .zone.sel{fill-opacity:.6;stroke-opacity:1}
+.bodyfig2 .zone.sel.main{fill:var(--haldi);fill-opacity:.85}
+.bodyfig2 .zone.static{cursor:default}
+.bodyfig2 .zone.static:hover{transform:none;fill-opacity:0}
+.bodyfig2 .zone.static.sel{fill-opacity:.6}
+.bodyfig2 .zone.static.sel.main{fill-opacity:.85}
+.bodyfig2 .pinbox{overflow:visible;pointer-events:none;text-align:center}
+.bodyfig2 .pin{display:inline-block;max-width:150px;font:700 12px/1.2 var(--body);padding:6px 11px;border-radius:999px;background:var(--text);color:var(--surface);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 8px 16px -6px rgba(0,0,0,.45);animation:pinpop .25s cubic-bezier(.2,.7,.2,1)}
+.bodyfig2 .pin.main{background:var(--haldi);color:#2C2622}
+@keyframes pinpop{from{transform:scale(.7);opacity:0}}
+@media (prefers-reduced-motion:reduce){.bodyfig2 .pin{animation:none}.bodyfig2 .zone{transition:none}}
+.bodymap .bodyfig2{max-width:300px;margin:0 auto}
+.bodyctl{display:flex;justify-content:center;margin-top:12px}
+.bodyctl .flipbtn{width:auto;min-height:44px;padding:10px 20px;font-size:15px}
+.bodypick span{color:var(--muted)}
+html.a11y-contrast .bodyfig2 .zone.sel{stroke:#000;stroke-width:3}
+html.a11y-contrast .bodyfig2 .pin{border:2px solid #000}
 .bodymini p{margin:0;font-size:16px}
 .bodyfig .figure{fill:#F3EDE4;stroke:#D8C6B8;stroke-width:2}
 .bodyfig .zone{fill:var(--sage-soft);stroke:#fff;stroke-width:2}

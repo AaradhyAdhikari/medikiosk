@@ -2144,7 +2144,7 @@ async function api(req, res, pathname) {
         historyVerified: v.historyVerified || null,
         summary: {
           chiefComplaint: sm.chiefComplaint || null, narrative: sm.narrative || null, hpi: sm.hpi || null,
-          bodyZone: sm.bodyZone || null,
+          bodyZone: sm.bodyZone || null, bodyZones: sm.bodyZones || null,
           pastHistory: sm.pastHistory || null, medications: sm.medications || null,
           allergies: sm.allergies || null, familyHistory: sm.familyHistory || null,
           personal: sm.personal || null, ros: sm.ros || null,
@@ -2509,7 +2509,9 @@ async function api(req, res, pathname) {
     // Where on the body the patient touched, as a zone key the figure can
     // highlight — for the physician's screen and the patient's own record.
     const site = answers.find((a) => a.questionId === "site" && a.zone);
-    summary.bodyZone = site ? String(site.zone).slice(0, 20) : null;
+    const zones = site ? [].concat(site.zone).filter(Boolean).map((z) => String(z).slice(0, 24)).slice(0, 8) : [];
+    summary.bodyZone = zones[0] || null;      // the main one, as before
+    summary.bodyZones = zones;                // every part touched, main first
     visit.redFlag = redFlag;
     visit.triage = redFlag ? (summary.triage === "URGENT" ? "URGENT" : "PRIORITY") : "ROUTINE";
     visit.status = "WAITING";

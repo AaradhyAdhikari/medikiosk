@@ -1118,7 +1118,7 @@ function scDash() {
                   : "") +
                 (v.prescription ? sec(L("दवाइयाँ जो लिखी गईं", "What was prescribed"), v.prescription) : "") +
                 sec(L("मुख्य तकलीफ़", "Main problem"), s.chiefComplaint) +
-                bodyFigureBlock(s.bodyZone, null) +
+                bodyFigureBlock(s.bodyZones || s.bodyZone, null, (r.patient && r.patient.sex) || S.sex) +
                 sec(L("विवरण", "The story"), s.narrative) +
                 sec(L("पुरानी बीमारियाँ", "Existing conditions"), s.pastHistory) +
                 sec(L("दवाइयाँ", "Medicines"), s.medications) +
@@ -1525,6 +1525,8 @@ function scSystem() {
 var FACES = [["बिल्कुल नहीं","None"],["थोड़ी","Mild"],["ठीक-ठाक","Moderate"],["ज़्यादा","Severe"],["बर्दाश्त नहीं","Unbearable"]];
 
 var ZONES = window.BODYMAP.ZONES;      // drawn in bodymap.js, shared with the console
+function zoneKeys(qid) { var k = S.answers["_zone_" + qid]; return Array.isArray(k) ? k.slice() : (k ? [k] : []); }
+function zoneName(key) { var z = window.BODYMAP.zoneByKey(key); return z ? L(z[1], z[2]) : String(key); }
 
 /* The English behind a tapped option — for red-flag checks on AI-written
    options, whose labels the keyword lists have never seen. */
@@ -1574,13 +1576,21 @@ function scQuestion() {
   }
 
   if (q.kind === "bodymap") {
+    // Several parts can be touched; the first is the main one. The figure
+    // follows the patient's sex, and flips to show the back.
+    var zk = zoneKeys(q.id), bview = S.bodyView || "front";
     html += '<div class="bodymap">' + window.BODYMAP.svg({
-        interactive: true, selected: S.answers["_zone_" + q.id] || null,
+        view: bview, sex: S.sex, interactive: true, pins: true, selected: zk,
         label: function (z) { return L(z[1], z[2]); }, ariaLabel: L("शरीर का नक़्शा", "Body map"),
       }) + "</div>" +
-      '<p class="lede" style="text-align:center;margin-top:12px">' +
-      (v ? '<b style="color:var(--haldi);font-size:19px">' + esc(v) + "</b>"
-         : L("शरीर पर जहाँ तकलीफ़ है, वहाँ छूइए", "Touch the part of the body that troubles you")) + "</p>";
+      '<div class="bodyctl"><button class="btn ghost flipbtn" data-flip>' +
+        (bview === "front" ? L("पीछे से देखें", "Show the back") : L("सामने से देखें", "Show the front")) + "</button></div>" +
+      '<p class="lede bodypick" style="text-align:center;margin-top:12px">' +
+      (zk.length
+        ? '<b style="color:var(--haldi);font-size:19px">' + esc(zoneName(zk[0])) + "</b>" +
+          (zk.length > 1 ? "<br><span>" + esc(L("साथ में", "also") + ": " + zk.slice(1).map(zoneName).join(", ")) + "</span>" : "") +
+          '<br><small style="color:var(--muted)">' + L("और जगह हो तो छूइए · हटाने के लिए दोबारा छूइए", "Tap more parts if there are more · tap again to remove") + "</small>"
+        : L("शरीर पर जहाँ तकलीफ़ है, वहाँ छूइए", "Touch the part of the body that troubles you")) + "</p>";
   }
 
   if (q.kind === "faces") {
@@ -1638,14 +1648,18 @@ function scQuestion() {
   body.onclick = function (e) {
     var z = e.target.closest("[data-zone]");
     if (z) {
-      S.answers[q.id] = z.dataset.zone; S.answers["_src_" + q.id] = "touch";
-      S.answers["_zone_" + q.id] = z.dataset.key;          // the key, so a figure can light it anywhere
-      body.querySelectorAll("[data-zone]").forEach(function (n) { n.classList.remove("sel"); });
-      z.classList.add("sel");
-      var p = body.querySelector(".bodymap + p");
-      if (p) p.innerHTML = '<b style="color:var(--haldi);font-size:19px">' + esc(z.dataset.zone) + "</b>";
-      return refresh();
+      var keys = zoneKeys(q.id), at = keys.indexOf(z.dataset.key);
+      if (at > -1) keys.splice(at, 1); else keys.push(z.dataset.key);
+      S.answers["_zone_" + q.id] = keys.length ? keys : null;   // the keys, so a figure can light them anywhere
+      S.answers[q.id] = keys.length
+        ? zoneName(keys[0]) + (keys.length > 1 ? " · " + L("साथ में", "also") + " " + keys.slice(1).map(zoneName).join(", ") : "")
+        : null;
+      S.answers["_src_" + q.id] = "touch";
+      if (at === -1) speak(z.dataset.zone);                   // name the part as it lights
+      return render();
     }
+    var fb = e.target.closest("[data-flip]");
+    if (fb) { S.bodyView = (S.bodyView || "front") === "front" ? "back" : "front"; return render(); }
     var fbtn = e.target.closest("[data-face]");
     if (fbtn) {
       S.answers[q.id] = fbtn.dataset.face; S.answers["_src_" + q.id] = "touch";
@@ -2033,14 +2047,19 @@ function scReview() {
 
 /* The body figure with the touched zone lit — the one part of the history
    that needs no translation. Shown on the review screen and in the record. */
-function bodyFigureBlock(zoneKey, label) {
-  if (!zoneKey || !window.BODYMAP) return "";
-  var z = window.BODYMAP.zoneByKey(zoneKey);
-  var name = label || (z ? L(z[1], z[2]) : "");
+function bodyFigureBlock(zoneKey, label, sex) {
+  var keys = Array.isArray(zoneKey) ? zoneKey : (zoneKey ? [zoneKey] : []);
+  if (!keys.length || !window.BODYMAP) return "";
+  var views = window.BODYMAP.VIEWS.filter(function (v) { return keys.some(function (k) { return window.BODYMAP.viewOf(k) === v; }); });
+  var name = label || zoneName(keys[0]);
   return '<div class="summary-sec bodyblock"><h4>' + L("तकलीफ़ कहाँ है", "Where the problem is") + "</h4>" +
-    '<div class="bodymini">' + window.BODYMAP.svg({ selected: zoneKey, label: function (zz) { return L(zz[1], zz[2]); },
-      ariaLabel: L("शरीर का नक़्शा", "Body map") }) +
-    "<p><b>" + esc(name) + "</b></p></div></div>";
+    '<div class="bodymini">' + views.map(function (v) {
+      return window.BODYMAP.svg({ view: v, sex: sex || S.sex, selected: keys, label: function (zz) { return L(zz[1], zz[2]); },
+        ariaLabel: L("शरीर का नक़्शा", "Body map") });
+    }).join("") +
+    "<p><b>" + esc(name) + "</b>" +
+    (keys.length > 1 && !label ? "<br><small>" + esc(L("साथ में", "also") + ": " + keys.slice(1).map(zoneName).join(", ")) + "</small>" : "") +
+    "</p></div></div>";
 }
 
 /* The token slip.
