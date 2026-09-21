@@ -509,5 +509,10 @@ window.TR.ta = {
   "No SMS gateway — tap here to fill the code: ": "SMS சேவை இல்லை — குறியீட்டை நிரப்ப இங்கே தொடவும்: ",
   "Auto Verifying OTP": "OTP தானாகச் சரிபார்க்கப்படுகிறது",
   "Resend code": "குறியீட்டை மீண்டும் அனுப்பு",
-  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "தயவுசெய்து இப்போதே கவுன்டருக்குச் சென்று ஊழியரிடம் சொல்லுங்கள். நீங்கள் இன்னும் உள்நுழையவில்லை, எனவே உங்களுக்காக எதுவும் அனுப்ப முடியவில்லை — நேரடியாக யாரிடமாவது பேசுங்கள்."
+  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "தயவுசெய்து இப்போதே கவுன்டருக்குச் சென்று ஊழியரிடம் சொல்லுங்கள். நீங்கள் இன்னும் உள்நுழையவில்லை, எனவே உங்களுக்காக எதுவும் அனுப்ப முடியவில்லை — நேரடியாக யாரிடமாவது பேசுங்கள்.",
+
+  // Model-written follow-up questions and the body figure — Sep 2026.
+  "Preparing questions for you": "உங்களுக்கான கேள்விகள் தயாராகின்றன",
+  "Based on what you told us": "நீங்கள் சொன்னதன் அடிப்படையில்",
+  "Where the problem is": "பிரச்சனை எங்கே"
 };

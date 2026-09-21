@@ -779,6 +779,12 @@ function renderCase() {
       interactionsPanel(s) +
 
       '<div class="split"><div>' +
+        (s.bodyZone && window.BODYMAP
+          ? '<div class="panel bodypanel"><h3>Where the patient pointed</h3><div class="bodymini">' +
+            window.BODYMAP.svg({ selected: s.bodyZone, ariaLabel: "Body map" }) +
+            "<p><b>" + esc((window.BODYMAP.zoneByKey(s.bodyZone) || [])[2] || s.bodyZone) + "</b>" +
+            '<br><small style="color:var(--muted)">Touched by the patient on the kiosk figure</small></p></div></div>'
+          : "") +
         '<div class="panel"><h3>Structured history · AI draft, you verify</h3>' +
           (s.narrative && !D.amending
             ? '<p style="font-size:16.5px;line-height:1.6;margin:0 0 14px;padding:13px 15px;background:var(--surface);' +

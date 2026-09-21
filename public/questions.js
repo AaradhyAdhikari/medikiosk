@@ -582,7 +582,7 @@ window.GENERIC_QUESTIONS = [
     phHi: "बोलिए या लिखिए", phEn: "Speak or type" },
 ];
 
-window.firstVisitQuestions = function (system, complaintText) {
+window.firstVisitQuestions = function (system, complaintText, aiExtra) {
   var cat = window.classifyComplaint(complaintText);
 
   /* Pain and chest pain ARE pain, so they keep "what does it feel like" and
@@ -593,7 +593,11 @@ window.firstVisitQuestions = function (system, complaintText) {
   /* A matched category brings its own block. An unmatched complaint gets two
      neutral questions rather than a guess at a body system. "pain" has no
      block of its own because character + aggravating already cover it. */
-  var extra = (cat && window.CATEGORY_QUESTIONS[cat]) || (cat ? [] : window.GENERIC_QUESTIONS);
+  /* When the model has written a block for this complaint, it stands in for
+     the static one — same shape, same renderer. Otherwise the static block. */
+  var extra = (aiExtra && aiExtra.length)
+    ? aiExtra
+    : ((cat && window.CATEGORY_QUESTIONS[cat]) || (cat ? [] : window.GENERIC_QUESTIONS));
 
   /* Characterise the complaint before asking where it spreads — the category
      block therefore lands after the pain questions when those are asked. */

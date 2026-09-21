@@ -505,5 +505,10 @@ window.TR.mr = {
   "No SMS gateway — tap here to fill the code: ": "SMS सेवा नाही — कोड भरण्यासाठी इथे दाबा: ",
   "Auto Verifying OTP": "OTP आपोआप तपासला जात आहे",
   "Resend code": "कोड पुन्हा पाठवा",
-  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "कृपया लगेच काउंटरवर जाऊन कर्मचाऱ्यांना सांगा. तुम्ही अजून साइन इन केलेले नाही, त्यामुळे तुमच्यासाठी काहीही पाठवता आले नाही — थेट कोणाशी तरी बोला."
+  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "कृपया लगेच काउंटरवर जाऊन कर्मचाऱ्यांना सांगा. तुम्ही अजून साइन इन केलेले नाही, त्यामुळे तुमच्यासाठी काहीही पाठवता आले नाही — थेट कोणाशी तरी बोला.",
+
+  // Model-written follow-up questions and the body figure — Sep 2026.
+  "Preparing questions for you": "तुमच्यासाठी प्रश्न तयार होत आहेत",
+  "Based on what you told us": "तुम्ही जे सांगितले त्यानुसार",
+  "Where the problem is": "त्रास कुठे आहे"
 };

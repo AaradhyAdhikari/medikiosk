@@ -212,11 +212,6 @@ html.a11y-contrast .kiosk,html.a11y-contrast .dcard{box-shadow:none;border:3px s
 @keyframes spin{to{transform:rotate(360deg)}}
 
 .bodymap{display:flex;justify-content:center}
-.bodymap svg{width:100%;max-width:232px;height:auto}
-.bodymap .zone{fill:#D9E6DC;stroke:#fff;stroke-width:2;cursor:pointer;transition:.12s}
-.bodymap .zone:hover{fill:#B6D3C2}
-.bodymap .zone.sel{fill:var(--haldi)}
-.bodymap .figure{fill:#EDF3EE;stroke:#C2D4C7;stroke-width:2}
 
 /* ── doctor console ────────────────────────────────── */
 .doc{position:relative;z-index:1;width:100%;max-width:1240px;margin:0 auto}
@@ -736,3 +731,19 @@ html.a11y-contrast .badge.lang{border:2px solid #000;color:#000}
 @media (max-width:760px){.split.home{grid-template-columns:1fr}}
 
 .kbar #btn-full.on{background:var(--haldi);color:#22160a}
+
+/* The body figure wherever it is shown small and read-only. */
+.bodymini{display:flex;align-items:center;gap:14px}
+.bodymini .bodyfig{width:88px;flex:none}
+.bodymini p{margin:0;font-size:16px}
+.bodyfig .figure{fill:#EDF3EE;stroke:#C2D4C7;stroke-width:2}
+.bodyfig .zone{fill:#D9E6DC;stroke:#fff;stroke-width:2}
+.bodyfig .zone.static{cursor:default}
+.bodyfig .zone.sel{fill:var(--haldi)}
+.bodymap .bodyfig{width:100%;max-width:232px;height:auto}
+.bodymap .zone{cursor:pointer;transition:.12s}
+.bodymap .zone:hover{fill:#B6D3C2}
+.bodymap .zone.sel{fill:var(--haldi)}
+.panel.bodypanel{margin-bottom:16px}
+/* "Asked because you mentioned…" on a model-written question. */
+.lede.aibecause{font-size:14px;color:var(--jade);margin-top:-4px;display:flex;align-items:center;gap:6px}

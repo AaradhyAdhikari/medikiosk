@@ -509,5 +509,10 @@ window.TR.te = {
   "No SMS gateway — tap here to fill the code: ": "SMS సేవ లేదు — కోడ్ నింపడానికి ఇక్కడ నొక్కండి: ",
   "Auto Verifying OTP": "OTP ఆటోమేటిక్‌గా ధృవీకరించబడుతోంది",
   "Resend code": "కోడ్ మళ్ళీ పంపండి",
-  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "దయచేసి ఇప్పుడే కౌంటర్‌కు వెళ్ళి సిబ్బందికి చెప్పండి. మీరు ఇంకా సైన్ ఇన్ చేయలేదు, కాబట్టి మీ కోసం ఏమీ పంపలేకపోయాము — నేరుగా ఎవరితోనైనా మాట్లాడండి."
+  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "దయచేసి ఇప్పుడే కౌంటర్‌కు వెళ్ళి సిబ్బందికి చెప్పండి. మీరు ఇంకా సైన్ ఇన్ చేయలేదు, కాబట్టి మీ కోసం ఏమీ పంపలేకపోయాము — నేరుగా ఎవరితోనైనా మాట్లాడండి.",
+
+  // Model-written follow-up questions and the body figure — Sep 2026.
+  "Preparing questions for you": "మీ కోసం ప్రశ్నలు సిద్ధమవుతున్నాయి",
+  "Based on what you told us": "మీరు చెప్పిన దాని ఆధారంగా",
+  "Where the problem is": "సమస్య ఎక్కడ ఉంది"
 };

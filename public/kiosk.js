@@ -4,6 +4,7 @@
 var S = {
   lang: "hi", screen: "lang", phone: "", otp: "", otpUntil: 0, devCode: "", live: false,
   emergencyRaised: false, redBack: null,
+  aiBlock: null,        // { key, status: "loading"|"ready"|"failed", questions, because }
   method: null,           // "phone" | "abha" | "aadhaar"
   abhaInput: "", aadhaarInput: "",
   name: "", ageYears: "", sex: "", heightCm: "", weightKg: "",
@@ -118,7 +119,8 @@ function complaintText() {
 
 function questions() {
   if (S.visit && S.visit.visitType === "FOLLOW_UP") return window.FOLLOW_UP;
-  var qs = window.firstVisitQuestions((S.visit && S.visit.system) || S.system, complaintText());
+  var ai = S.aiBlock && S.aiBlock.status === "ready" && S.aiBlock.key === complaintText() ? S.aiBlock.questions : null;
+  var qs = window.firstVisitQuestions((S.visit && S.visit.system) || S.system, complaintText(), ai);
   /* A patient who goes back and changes their complaint can shorten the list
      from under the cursor. Without this the interview walks off the end and
      renders undefined. */
@@ -296,6 +298,85 @@ function stopListen() {
     }
   } catch (e) {} 
   recOn = false; 
+}
+
+/* ── adaptive follow-up questions ───────────────────
+   Asked for the moment the complaint is known, so the answer is usually back
+   before the patient reaches the point where the block goes in — after the
+   duration question, or after the pain questions. If it is not, they wait a
+   few seconds on a screen that says so; if it fails or takes too long, the
+   static block is used and nobody is told the difference. */
+var AI_Q_WAIT_MS = 7000;
+function requestAiBlock() {
+  if (S.aiEnabled === false || S.aiQuestions === false) return;
+  var key = complaintText();
+  if (!key || !S.visit || !S.visit.id) return;
+  if (S.aiBlock && S.aiBlock.key === key && S.aiBlock.status !== "failed") return;   // already asked for this complaint
+  var block = { key: key, status: "loading", questions: null, because: null, startedAt: Date.now() };
+  S.aiBlock = block;
+  api("/api/visits/" + S.visit.id + "/questions", { complaintEn: key, complaintText: S.answers["_other_complaint"] || "" })
+    .then(function (r) {
+      if (S.aiBlock !== block) return;                       // the complaint changed meanwhile
+      if (r.source !== "ai" || !r.questions || !r.questions.length) { block.status = "failed"; return; }
+      block.questions = r.questions.map(toKioskQuestion);
+      block.because = r.because || null;
+      block.status = "ready";
+    })
+    .catch(function () { if (S.aiBlock === block) block.status = "failed"; });
+}
+/* The model writes English and the patient's language. The kiosk resolves
+   text through L(hi, en) — Hindi inline, other languages via the TR table
+   keyed by English — so the native text is registered there and everything
+   downstream (the screen reader, the summary, the review) just works. */
+function toKioskQuestion(q) {
+  var lang = S.lang;
+  var reg = function (en, nat) {
+    if (!nat || lang === "en" || lang === "hi") return;
+    window.TR[lang] = window.TR[lang] || {};
+    window.TR[lang][en] = nat;
+  };
+  reg(q.en, q.native);
+  var chips = (q.options || []).map(function (o) {
+    reg(o.en, o.native);
+    return { ic: o.ic || "faded", hi: lang === "hi" ? o.native : o.en, en: o.en };
+  });
+  return { id: q.id, kind: q.kind === "multi" ? "multi" : "chips", section: "complaint", ai: true,
+           hi: lang === "hi" ? q.native : q.en, en: q.en, chips: chips };
+}
+function aiBecauseText() {
+  var b = S.aiBlock && S.aiBlock.because;
+  if (!b) return "";
+  if (S.lang === "en") return b.en || "";
+  if (S.lang === "hi") return b.native || b.en || "";
+  if (b.native) { window.TR[S.lang] = window.TR[S.lang] || {}; window.TR[S.lang][b.en] = b.native; }
+  return L(b.native || b.en, b.en);
+}
+/* Is the next step the AI block, and is it still on its way? */
+function aiBlockPending(fromQ) {
+  if (!S.aiBlock || S.aiBlock.status !== "loading" || S.aiBlock.key !== complaintText()) return false;
+  var cat = window.classifyComplaint(complaintText());
+  var insertAfter = (cat === "pain" || cat === "cardiac") ? "aggravating" : "duration";
+  return fromQ && fromQ.id === insertAfter;
+}
+function scAiWait() {
+  body.innerHTML = '<div style="margin:auto;text-align:center;padding:30px 0">' +
+    '<div class="bigmark">' + ICON("spark", 54) + "</div>" +
+    '<h1 class="q" style="font-size:26px">' + L("आपके लिए सवाल तैयार हो रहे हैं", "Preparing questions for you") + "</h1>" +
+    '<div class="thinking" style="justify-content:center;margin-top:18px"><span class="spinner"></span><span>' +
+      L("आपने जो बताया, उसके हिसाब से", "Based on what you told us") + "</span></div></div>";
+  foot.innerHTML = "";
+  var started = Date.now();
+  (function poll() {
+    if (S.screen !== "aiwait") return;
+    var b = S.aiBlock;
+    var done = !b || b.status !== "loading" || Date.now() - started > AI_Q_WAIT_MS;
+    if (done) {
+      if (b && b.status === "loading") b.status = "failed";   // too slow: the static block, and no more waiting
+      S.step++; go("q");
+      return;
+    }
+    setTimeout(poll, 250);
+  })();
 }
 
 /* ── idle timeout ───────────────────────────────────
@@ -559,7 +640,7 @@ function render() {
     lang: scLang, identify: scIdentify, phone: scPhone, abha: scAbha, aadhaar: scAadhaar,
     otp: scOtp, profile: scProfile, consent: scConsent, visit: scVisit, system: scSystem,
     q: scQuestion, red: scRed, docs: scDocs, think: scThink, review: scReview, done: scDone,
-    a11y: scA11y,
+    aiwait: scAiWait, a11y: scA11y,
     signin: scSignin, account: scAccount, accountdone: scAccountDone, dash: scDash,
   })[S.screen]();
 
@@ -1030,6 +1111,7 @@ function scDash() {
                   : "") +
                 (v.prescription ? sec(L("दवाइयाँ जो लिखी गईं", "What was prescribed"), v.prescription) : "") +
                 sec(L("मुख्य तकलीफ़", "Main problem"), s.chiefComplaint) +
+                bodyFigureBlock(s.bodyZone, null) +
                 sec(L("विवरण", "The story"), s.narrative) +
                 sec(L("पुरानी बीमारियाँ", "Existing conditions"), s.pastHistory) +
                 sec(L("दवाइयाँ", "Medicines"), s.medications) +
@@ -1435,12 +1517,18 @@ function scSystem() {
 
 var FACES = [["बिल्कुल नहीं","None"],["थोड़ी","Mild"],["ठीक-ठाक","Moderate"],["ज़्यादा","Severe"],["बर्दाश्त नहीं","Unbearable"]];
 
-var ZONES = [
-  ["head","सिर","Head",95,26,20,20],["chest","छाती","Chest",95,72,22,18],["abdomen","पेट","Abdomen",95,110,22,20],
-  ["lowback","पीठ / कमर","Lower back",95,142,20,14],["lsh","कंधा","Shoulder",60,66,15,14],["rsh","कंधा","Shoulder",130,66,15,14],
-  ["larm","हाथ","Arm",48,112,13,22],["rarm","हाथ","Arm",142,112,13,22],["lknee","घुटना","Knee",80,214,15,15],
-  ["rknee","घुटना","Knee",110,214,15,15],["lfoot","पैर","Foot",79,270,13,14],["rfoot","पैर","Foot",111,270,13,14],
-];
+var ZONES = window.BODYMAP.ZONES;      // drawn in bodymap.js, shared with the console
+
+/* The English behind a tapped option — for red-flag checks on AI-written
+   options, whose labels the keyword lists have never seen. */
+function answerEn(q) {
+  var v = S.answers[q.id];
+  var vals = Array.isArray(v) ? v : (v ? [v] : []);
+  return vals.map(function (val) {
+    var c = (q.chips || []).filter(function (x) { return L(x.hi, x.en) === val; })[0];
+    return c ? c.en : "";
+  }).join(" ");
+}
 
 function hasAns(q) {
   if (q.kind === "measure") return !!(S.heightCm && S.weightKg);
@@ -1463,7 +1551,8 @@ function scQuestion() {
     '<h1 class="q">' + esc(L(q.hi, q.en)) + "</h1>" +
     (S.lang === "en" ? "" : '<p class="q-en">' + esc(q.en) + "</p>") +
     (q.note ? '<p class="lede" style="font-size:15px;color:var(--jade);margin-top:-6px">' +
-      (q.paramHi ? '<b class="dev">' + esc(SK(q.paramHi)) + "</b> · " : "") + esc(L(q.note.hi, q.note.en)) + "</p>" : "");
+      (q.paramHi ? '<b class="dev">' + esc(SK(q.paramHi)) + "</b> · " : "") + esc(L(q.note.hi, q.note.en)) + "</p>" : "") +
+    (q.ai && aiBecauseText() ? '<p class="lede aibecause">' + ICON("spark", 15) + " " + esc(aiBecauseText()) + "</p>" : "");
 
   if (q.kind === "measure") {
     html += '<div class="measure">' +
@@ -1478,18 +1567,10 @@ function scQuestion() {
   }
 
   if (q.kind === "bodymap") {
-    html += '<div class="bodymap"><svg viewBox="0 0 190 300" role="group" aria-label="' + esc(L("शरीर का नक़्शा","Body map")) + '">' +
-      '<ellipse class="figure" cx="95" cy="28" rx="21" ry="24"/>' +
-      '<rect class="figure" x="88" y="50" width="14" height="12" rx="5"/>' +
-      '<path class="figure" d="M67 64 h56 q10 0 11 10 l4 52 q1 8 -7 8 h-6 l-3 40 h-58 l-3 -40 h-6 q-8 0 -7 -8 l4 -52 q1 -10 11 -10 z"/>' +
-      '<path class="figure" d="M64 70 l-14 6 -8 60 q-1 8 7 9 q8 1 10 -7 l12 -48 z"/>' +
-      '<path class="figure" d="M126 70 l14 6 8 60 q1 8 -7 9 q-8 1 -10 -7 l-12 -48 z"/>' +
-      '<path class="figure" d="M76 176 l-3 62 -3 46 q-1 8 8 8 q8 0 9 -8 l8 -66 l8 66 q1 8 9 8 q9 0 8 -8 l-3 -46 l-3 -62 z"/>' +
-      ZONES.map(function (z) {
-        var label = L(z[1], z[2]);
-        return '<ellipse class="zone' + (v === label ? " sel" : "") + '" data-zone="' + esc(label) + '" cx="' + z[3] +
-          '" cy="' + z[4] + '" rx="' + z[5] + '" ry="' + z[6] + '" tabindex="0" role="button"><title>' + esc(label) + "</title></ellipse>";
-      }).join("") + "</svg></div>" +
+    html += '<div class="bodymap">' + window.BODYMAP.svg({
+        interactive: true, selected: S.answers["_zone_" + q.id] || null,
+        label: function (z) { return L(z[1], z[2]); }, ariaLabel: L("शरीर का नक़्शा", "Body map"),
+      }) + "</div>" +
       '<p class="lede" style="text-align:center;margin-top:12px">' +
       (v ? '<b style="color:var(--haldi);font-size:19px">' + esc(v) + "</b>"
          : L("शरीर पर जहाँ तकलीफ़ है, वहाँ छूइए", "Touch the part of the body that troubles you")) + "</p>";
@@ -1551,6 +1632,7 @@ function scQuestion() {
     var z = e.target.closest("[data-zone]");
     if (z) {
       S.answers[q.id] = z.dataset.zone; S.answers["_src_" + q.id] = "touch";
+      S.answers["_zone_" + q.id] = z.dataset.key;          // the key, so a figure can light it anywhere
       body.querySelectorAll("[data-zone]").forEach(function (n) { n.classList.remove("sel"); });
       z.classList.add("sel");
       var p = body.querySelector(".bodymap + p");
@@ -1654,7 +1736,10 @@ function scQuestion() {
   }
 
   nx.onclick = function () {
-    if (window.isRedFlag(S.answers[q.id]) || window.isRedFlag(S.answers["_other_" + q.id])) return raiseFromAnswer(q);
+    if (window.isRedFlag(S.answers[q.id]) || window.isRedFlag(S.answers["_other_" + q.id]) ||
+        window.isRedFlag(answerEn(q))) return raiseFromAnswer(q);
+    if (q.id === "complaint") requestAiBlock();
+    if (aiBlockPending(q)) return go("aiwait");
     S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q"));
   };
   document.getElementById("bk").onclick = function () { S.step === 0 ? go("system") : (S.step--, go("q")); };
@@ -1833,6 +1918,8 @@ async function submitInterview() {
       source: S.answers["_src_" + q.id] || "touch",
       customSource: S.answers["_othersrc_" + q.id] || "typed",
       dosha: S.answers["_dosha_" + q.id] || null,
+      zone: S.answers["_zone_" + q.id] || null,
+      ai: !!q.ai,
     };
   }).filter(function (a) { return a.answer || a.customAnswer; });
 
@@ -1903,6 +1990,7 @@ function scReview() {
       '<p id="recap">' + esc(recap) + "</p>" +
       '<button class="btn ghost listen" id="listen">' + ICON("speaker", 20) + " " + L("सुनिए","Listen") + "</button>" +
     "</div>" +
+    bodyFigureBlock(S.answers["_zone_site"], S.answers["site"]) +
     sec(L("मुख्य तकलीफ़","Main problem"), s.chiefComplaint) +
     sec(L("विवरण","Details"), s.hpi) +
     sec(L("पुरानी बीमारियाँ","Existing conditions"), s.pastHistory) +
@@ -1934,6 +2022,18 @@ function scReview() {
   };
   speak(L("कृपया जाँच लीजिए कि यह सही है। अपनी भाषा में सुनने के लिए 'सुनिए' दबाइए।",
     "Please check that this is correct. Tap 'Listen' to hear it in your language."));
+}
+
+/* The body figure with the touched zone lit — the one part of the history
+   that needs no translation. Shown on the review screen and in the record. */
+function bodyFigureBlock(zoneKey, label) {
+  if (!zoneKey || !window.BODYMAP) return "";
+  var z = window.BODYMAP.zoneByKey(zoneKey);
+  var name = label || (z ? L(z[1], z[2]) : "");
+  return '<div class="summary-sec bodyblock"><h4>' + L("तकलीफ़ कहाँ है", "Where the problem is") + "</h4>" +
+    '<div class="bodymini">' + window.BODYMAP.svg({ selected: zoneKey, label: function (zz) { return L(zz[1], zz[2]); },
+      ariaLabel: L("शरीर का नक़्शा", "Body map") }) +
+    "<p><b>" + esc(name) + "</b></p></div></div>";
 }
 
 /* The token slip.
@@ -2047,6 +2147,7 @@ api("/api/config", null, "GET").then(function (c) {
   S.hospital = c.hospital || "";
   S.publicUrl = c.publicUrl || "";
   S.aiEnabled = c.aiEnabled !== false;   // the scan screen says up front when reading is off
+  S.aiQuestions = c.aiQuestions === true; // follow-up questions written for the complaint
   S.tts = c.tts !== false;               // server-side speech for languages this machine cannot voice
   if (c.aiEnabled === false) console.warn("MediKiosk: no AI key on the server — documents will be saved unread, summaries assembled offline.");
 }).catch(function () { /* the slip falls back to this page's origin */ });

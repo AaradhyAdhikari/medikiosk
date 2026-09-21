@@ -509,5 +509,10 @@ window.TR.gu = {
   "No SMS gateway — tap here to fill the code: ": "SMS સેવા નથી — કોડ ભરવા અહીં દબાવો: ",
   "Auto Verifying OTP": "OTP આપમેળે ચકાસાઈ રહ્યો છે",
   "Resend code": "કોડ ફરી મોકલો",
-  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "કૃપા કરીને હમણાં જ કાઉન્ટર પર જઈને સ્ટાફને કહો. તમે હજી સાઇન ઇન કર્યું નથી, તેથી તમારા માટે કંઈ મોકલી શકાયું નથી — સીધા કોઈને કહો."
+  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "કૃપા કરીને હમણાં જ કાઉન્ટર પર જઈને સ્ટાફને કહો. તમે હજી સાઇન ઇન કર્યું નથી, તેથી તમારા માટે કંઈ મોકલી શકાયું નથી — સીધા કોઈને કહો.",
+
+  // Model-written follow-up questions and the body figure — Sep 2026.
+  "Preparing questions for you": "તમારા માટે પ્રશ્નો તૈયાર થઈ રહ્યા છે",
+  "Based on what you told us": "તમે જે કહ્યું તેના આધારે",
+  "Where the problem is": "તકલીફ ક્યાં છે"
 };

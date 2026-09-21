@@ -509,5 +509,10 @@ window.TR.pa = {
   "No SMS gateway — tap here to fill the code: ": "SMS ਸੇਵਾ ਨਹੀਂ — ਕੋਡ ਭਰਨ ਲਈ ਇੱਥੇ ਦਬਾਓ: ",
   "Auto Verifying OTP": "OTP ਆਪਣੇ ਆਪ ਜਾਂਚਿਆ ਜਾ ਰਿਹਾ ਹੈ",
   "Resend code": "ਕੋਡ ਮੁੜ ਭੇਜੋ",
-  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "ਕਿਰਪਾ ਕਰਕੇ ਹੁਣੇ ਕਾਊਂਟਰ ਉੱਤੇ ਜਾ ਕੇ ਸਟਾਫ਼ ਨੂੰ ਦੱਸੋ। ਤੁਸੀਂ ਅਜੇ ਸਾਈਨ ਇਨ ਨਹੀਂ ਕੀਤਾ, ਇਸ ਲਈ ਤੁਹਾਡੇ ਲਈ ਕੁਝ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ — ਸਿੱਧਾ ਕਿਸੇ ਨਾਲ ਗੱਲ ਕਰੋ।"
+  "Please go to the desk and tell a staff member now. You are not signed in yet, so nothing could be sent for you — speak to someone directly.": "ਕਿਰਪਾ ਕਰਕੇ ਹੁਣੇ ਕਾਊਂਟਰ ਉੱਤੇ ਜਾ ਕੇ ਸਟਾਫ਼ ਨੂੰ ਦੱਸੋ। ਤੁਸੀਂ ਅਜੇ ਸਾਈਨ ਇਨ ਨਹੀਂ ਕੀਤਾ, ਇਸ ਲਈ ਤੁਹਾਡੇ ਲਈ ਕੁਝ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ — ਸਿੱਧਾ ਕਿਸੇ ਨਾਲ ਗੱਲ ਕਰੋ।",
+
+  // Model-written follow-up questions and the body figure — Sep 2026.
+  "Preparing questions for you": "ਤੁਹਾਡੇ ਲਈ ਸਵਾਲ ਤਿਆਰ ਹੋ ਰਹੇ ਹਨ",
+  "Based on what you told us": "ਜੋ ਤੁਸੀਂ ਦੱਸਿਆ ਉਸ ਦੇ ਆਧਾਰ 'ਤੇ",
+  "Where the problem is": "ਤਕਲੀਫ਼ ਕਿੱਥੇ ਹੈ"
 };

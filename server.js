@@ -1169,6 +1169,103 @@ function DEPARTMENT_SPEC(system) {
   );
 }
 
+/* ── adaptive follow-up questions ─────────────────────────────────────
+   Module A asks for "intelligent follow-up questions… the SOCRATES
+   framework". The fixed spine of the interview stays fixed — complaint,
+   duration, red flags, past history, medicines, allergies, family, the
+   Dashavidha block — and only the complaint-specific block is written by the
+   model: four to six questions a physician would ask next about THIS
+   complaint, each with tap-able options, in the patient's language. The
+   static block remains the fallback for every way this can fail, and
+   AI_QUESTIONS=off turns it off outright. One call per complaint, cached,
+   so a free tier's rate limit is never the patient's wait. */
+const AI_QUESTIONS_ON = () => aiOn() && String(process.env.AI_QUESTIONS || "on").toLowerCase() !== "off";
+const aiQuestionCache = new Map();               // "lang|complaint" -> block
+const AI_Q_ICONS = ["joint", "head", "stomach", "lungs", "fever", "sleep", "skin", "chest", "sun", "clock", "flame",
+  "blood", "heart", "bone", "plate", "walk", "cross", "faded", "snow", "sunrise", "pill", "dust", "spiral", "egg", "hourglass"];
+const BANNED_Q = /\b(diagnos|you have|you might have|cancer|tumou?r|heart attack|stroke|hiv|tuberculosis)\b/i;
+
+async function buildAiQuestions({ complaintEn, complaintText, language, ageYears, sex }) {
+  const key = (language || "hi") + "|" + String(complaintEn || complaintText || "").toLowerCase().trim();
+  if (aiQuestionCache.has(key)) return Object.assign({ cached: true }, aiQuestionCache.get(key));
+  const langName = LANG_NAMES[language] || "Hindi";
+  const native = language === "en" ? "" :
+    `Every "native" field is that text in ${langName}, in ${langName}'s own script (never transliterated into Latin letters), ` +
+    "in the plainest everyday words a patient with little schooling uses at a village clinic. ";
+  const text = await askAI([{
+    type: "text",
+    text:
+      "You are helping a self-service intake kiosk at an Indian government hospital OPD interview a patient BEFORE " +
+      "the doctor sees them. The patient has just said what brought them in. Write the follow-up questions a careful " +
+      "physician would ask next about this specific complaint — the SOCRATES elements that matter for it (onset, " +
+      "character, radiation, associated symptoms, timing, exacerbating/relieving factors, severity) and the review-of-" +
+      "systems items that matter for it. Not generic. Not questions the kiosk already asks: it already asks where it " +
+      "is, how bad, how long, past illnesses, medicines, allergies, family history.\n\n" +
+      `Chief complaint: "${String(complaintEn || complaintText).slice(0, 120)}"` +
+      (complaintText && complaintText !== complaintEn ? ` (patient's own words: "${String(complaintText).slice(0, 160)}")` : "") +
+      (ageYears ? `. Patient: ${ageYears}-year-old ${sex === "F" ? "woman" : sex === "M" ? "man" : "person"}.` : ".") +
+      "\n\nRules that matter more than cleverness:\n" +
+      "- 4 to 6 questions, each answerable by tapping one of 3 to 6 short options. No free-text questions.\n" +
+      "- Every question must be one a patient can answer about their own body from what they feel or see. Never ask " +
+      "them to know a diagnosis, a test result or a drug's purpose.\n" +
+      "- NEVER name a diagnosis, suggest what the patient has, or ask a leading question. You are collecting history, " +
+      "not reasoning aloud.\n" +
+      "- Short. A question under 12 words; an option under 6 words. Include a 'none of these' style option where sensible.\n" +
+      "- " + (native || 'This patient reads English; set every "native" field equal to the English text. ') +
+      "The English fields are what the physician reads.\n" +
+      `- "ic" is an icon hint for each option, one of: ${AI_Q_ICONS.join(", ")}. Choose the closest; "faded" when none fits.\n` +
+      '- "kind" is "chips" when exactly one option applies, "multi" when several may.\n\n' +
+      'Reply with ONLY a JSON object:\n' +
+      '{"because": {"en": one short sentence like "Asked because you mentioned cough", "native": the same in the patient\'s language},\n' +
+      ' "questions": [{"en": string, "native": string, "kind": "chips"|"multi", "socrates": one word, ' +
+      '"options": [{"en": string, "native": string, "ic": string}]}]}',
+  }], 1800);
+  const raw = parseJson(text);
+  const block = validateAiQuestions(raw, language);
+  if (!block) throw new Error("model returned an unusable question set");
+  if (aiQuestionCache.size > 300) aiQuestionCache.delete(aiQuestionCache.keys().next().value);
+  aiQuestionCache.set(key, block);
+  return Object.assign({ cached: false }, block);
+}
+
+/* Everything the kiosk will render must be here and sane; anything that is
+   not is dropped, and a set with fewer than three survivors is refused so
+   the static block is used instead. A model's bad question must never reach
+   a patient because the check was lenient. */
+function validateAiQuestions(raw, language) {
+  const str = (x, max) => (typeof x === "string" && x.trim() ? x.trim().slice(0, max) : null);
+  const list = Array.isArray(raw && raw.questions) ? raw.questions : [];
+  const questions = [];
+  for (const q of list) {
+    const en = str(q && q.en, 140);
+    let nat = str(q && q.native, 200) || (language === "en" ? en : null);
+    if (!en || !nat || BANNED_Q.test(en)) continue;
+    if (language !== "en" && !/[^\x00-\x7F]/.test(nat)) nat = null;   // asked for a script, got Latin letters
+    if (!nat) continue;
+    const opts = [];
+    for (const o of (Array.isArray(q.options) ? q.options : [])) {
+      const oen = str(o && o.en, 60);
+      let onat = str(o && o.native, 90) || (language === "en" ? oen : null);
+      if (!oen || !onat || BANNED_Q.test(oen)) continue;
+      if (language !== "en" && !/[^\x00-\x7F]/.test(onat)) onat = oen;   // a Latin option is tolerable; a Latin question is not
+      opts.push({ en: oen, native: onat, ic: AI_Q_ICONS.includes(o.ic) ? o.ic : "faded" });
+      if (opts.length === 6) break;
+    }
+    if (opts.length < 2) continue;
+    questions.push({
+      id: "ai_" + (questions.length + 1), en, native: nat,
+      kind: q.kind === "multi" ? "multi" : "chips",
+      socrates: str(q.socrates, 24) || null, options: opts,
+    });
+    if (questions.length === 6) break;
+  }
+  if (questions.length < 3) return null;
+  const b = raw.because || {};
+  const because = { en: str(b.en, 120) || "Asked because of what you told us", native: str(b.native, 160) || null };
+  if (!because.native || (language !== "en" && !/[^\x00-\x7F]/.test(because.native))) because.native = language === "en" ? because.en : null;
+  return { because, questions, generatedAt: now() };
+}
+
 async function buildSummaryAI({ answers, documents, visitType, system, prior, language }) {
   system = SYSTEMS.includes(system) ? system : "AYURVEDIC";
   const langName = LANG_NAMES[language] || "Hindi";
@@ -1567,6 +1664,7 @@ async function api(req, res, pathname) {
       // or a browser tab, why a scan came back unread.
       aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
       tts: TTS_ON,
+      aiQuestions: AI_QUESTIONS_ON(),
       // Where the data lives. "memory" on a serverless host means nothing
       // survives a cold start and instances do not see each other.
       storage: firebaseDb ? "firebase" : (SERVERLESS ? "memory" : "file"),
@@ -1861,6 +1959,7 @@ async function api(req, res, pathname) {
         historyVerified: v.historyVerified || null,
         summary: {
           chiefComplaint: sm.chiefComplaint || null, narrative: sm.narrative || null, hpi: sm.hpi || null,
+          bodyZone: sm.bodyZone || null,
           pastHistory: sm.pastHistory || null, medications: sm.medications || null,
           allergies: sm.allergies || null, familyHistory: sm.familyHistory || null,
           personal: sm.personal || null, ros: sm.ros || null,
@@ -1984,6 +2083,32 @@ async function api(req, res, pathname) {
     logEvent("visit_started", { visitId: visit.id, visitType, system: sys, language: lang });
     if (emergency) alertTriage(visit, "chose 'This is an emergency' at check-in");
     return ok(res, { visit });
+  }
+
+  // ---- patient: follow-up questions written for this complaint
+  const mq = pathname.match(/^\/api\/visits\/([\w-]+)\/questions$/);
+  if (mq && method === "POST") {
+    const s = patientOf(req);
+    if (!s) return bad(res, 401, "Your session expired.");
+    const visit = store.visits.find((v) => v.id === mq[1]);
+    if (!visit) return bad(res, 404, "Visit not found.");
+    if (visit.patientId !== s.pid) return bad(res, 403, "Not yours.");
+    if (!AI_QUESTIONS_ON()) return ok(res, { source: "static", reason: aiOn() ? "switched_off" : "no_key" });
+    if (rateLimited(req, "questions", 20, 10 * 60000)) return tooMany(res, "question requests");
+    const { complaintEn, complaintText } = await readBody(req);
+    if (!String(complaintEn || complaintText || "").trim()) return bad(res, 400, "complaint is required.");
+    const p = store.patients.find((x) => x.id === visit.patientId) || {};
+    try {
+      const block = await buildAiQuestions({
+        complaintEn, complaintText, language: visit.language || p.language || "hi", ageYears: p.ageYears, sex: p.sex,
+      });
+      logEvent("ai_questions", { visitId: visit.id, count: block.questions.length, cached: block.cached, language: visit.language });
+      return ok(res, Object.assign({ source: "ai" }, block));
+    } catch (e) {
+      console.warn("  ! ai questions failed, static block will be used:", String(e.message).slice(0, 140));
+      logEvent("ai_questions_failed", { visitId: visit.id, message: String(e.message).slice(0, 200) });
+      return ok(res, { source: "static", reason: "failed" });
+    }
   }
 
   // ---- patient: add a scanned document
@@ -2196,6 +2321,10 @@ async function api(req, res, pathname) {
     visit.answers = answers;
     visit.summary = summary;
     summary.interactions = interactionsFor(visit);
+    // Where on the body the patient touched, as a zone key the figure can
+    // highlight — for the physician's screen and the patient's own record.
+    const site = answers.find((a) => a.questionId === "site" && a.zone);
+    summary.bodyZone = site ? String(site.zone).slice(0, 20) : null;
     visit.redFlag = redFlag;
     visit.triage = redFlag ? (summary.triage === "URGENT" ? "URGENT" : "PRIORITY") : "ROUTINE";
     visit.status = "WAITING";
