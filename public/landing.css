@@ -148,7 +148,7 @@ section{padding:clamp(64px,9vw,128px) 0}
 
 /* the three big blocks */
 .blocks{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.block{position:relative;border-radius:32px;padding:32px 28px 28px;min-height:360px;display:flex;flex-direction:column;overflow:hidden;
+.block{position:relative;border-radius:32px;padding:32px 28px 28px;min-height:360px;display:flex;flex-direction:column;overflow:hidden;text-decoration:none;color:inherit;
   transition:transform .45s var(--ease),box-shadow .45s var(--ease);will-change:transform;transform-style:preserve-3d}
 .block:hover{transform:translateY(-8px) rotate(-.6deg);box-shadow:0 40px 70px -40px rgba(60,40,20,.5)}
 .block.blush{background:var(--blush)}.block.sage{background:var(--sage)}.block.lilac{background:var(--lilac)}
