@@ -147,8 +147,8 @@
       <div class="step rv"><div class="n">1</div><h3>Choose a language</h3><p>Seven scripts on the first screen. From here on every word, prompt and option is in that language.</p><span class="who"><b>Patient</b> · kiosk</span></div>
       <div class="step rv d1"><div class="n">2</div><h3>Say who you are</h3><p>Mobile, ABHA number or Aadhaar — a one-time code proves the phone. Returning patients are recognised; new ones get an ABHA and, if they like, a login.</p><span class="who"><b>Patient</b> · kiosk</span></div>
       <div class="step rv d2"><div class="n">3</div><h3>Answer by voice or tap</h3><p>Chief complaint, then follow-ups written for it. Point to where it hurts on a body map. An Ayurvedic history if the hospital asks for it.</p><span class="who"><b>Patient</b> · kiosk</span></div>
-      <div class="step rv"><div class="n">4</div><h3>Scan the papers you brought</h3><p>Hold each report or prescription to the camera. It is read, dated and filed into a timeline; abnormal values are flagged before anyone looks.</p><span class="who"><b>Patient</b> · kiosk</span></div>
-      <div class="step rv d1"><div class="n">5</div><h3>Hear it back, take your token</h3><p>The history is read back in the patient's language. They confirm it, choose what the doctor may see, and get a token slip with a QR and a department.</p><span class="who"><b>Patient</b> · kiosk</span></div>
+      <div class="step rv"><div class="n">4</div><h3>Upload your documents, get your token</h3><p>Hold each old report or prescription to the camera — it is read, dated and filed into a timeline, abnormal values flagged. Then a token slip prints with a QR code and your department.</p><span class="who"><b>Patient</b> · kiosk</span></div>
+      <div class="step rv d1"><div class="n">5</div><h3>Your AI summary, read back to you</h3><p>Everything you said and every paper you scanned becomes one clinical summary. The kiosk reads it back in your language; you confirm it and choose what the doctor may see — before anyone else reads a word.</p><span class="who"><b>Patient</b> · kiosk</span></div>
       <div class="step rv d2"><div class="n">6</div><h3>The doctor verifies and prescribes</h3><p>The structured history is already on the console, sources beside every line. Accept or amend, see interaction warnings, push a FHIR record to the ABHA locker.</p><span class="who"><b>Doctor</b> · console</span></div>
     </div>
   </div>
@@ -209,7 +209,7 @@
 <!-- ── FAQ ── -->
 <section class="faq" id="faq">
   <div class="wrap">
-    <div><span class="eyebrow rv">Questions</span><h2 class="rv d1">The things judges and clinicians ask first.</h2></div>
+    <div><span class="eyebrow rv">Questionnaires</span><h2 class="rv d1">The things judges and clinicians ask first.</h2></div>
     <div class="rv d2">
       <details><summary>Is MediKiosk a medical device? Does it diagnose?<span class="plus"></span></summary><p>No. It takes a history and organises documents. Every clinical decision is the physician's; the console shows a draft to accept, amend or reject, and records who did which. It is a Smart India Hackathon prototype and not a live service.</p></details>
       <details><summary>Where does the patient's data go?<span class="plus"></span></summary><p>Voice never leaves the kiosk as audio — recognition runs in the browser and only text is kept. Document and summary text go to a model API over TLS. In a hospital deployment the same code points at a hospital-hosted model, so nothing leaves the building. Consent is granular and revocable from the patient's own dashboard.</p></details>
