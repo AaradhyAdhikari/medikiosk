@@ -3,55 +3,284 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MediKiosk</title>
+<title>MediKiosk — your history, ready before you sit down</title>
+<meta name="description" content="AI clinical history intake for AYUSH OPDs. The patient answers in their own language and scans the papers they carry; the doctor reads a verified history before the consultation begins.">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0E2A22">
+<meta name="theme-color" content="#284849">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&family=Tiro+Devanagari+Hindi&family=IBM+Plex+Mono:wght@400;600&display=swap">
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300;9..144,400;9..144,300,50&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Tiro+Devanagari+Hindi&family=Noto+Sans+Devanagari:wght@400;500&display=swap">
+<link rel="stylesheet" href="/landing.css">
 </head>
 <body>
-<svg class="leafbg" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-  <defs><pattern id="lf" width="180" height="180" patternUnits="userSpaceOnUse" patternTransform="rotate(18)">
-    <path d="M90 20 C130 45 130 105 90 130 C50 105 50 45 90 20 Z M90 20 L90 130" fill="none" stroke="#8FD3B8" stroke-width="1.6"/>
-    <path d="M90 45 L112 60 M90 45 L68 60 M90 72 L116 88 M90 72 L64 88 M90 99 L108 111 M90 99 L72 111" stroke="#8FD3B8" stroke-width="1.1" fill="none"/>
-  </pattern></defs>
-  <rect width="100%" height="100%" fill="url(#lf)"/>
-</svg>
 
-<main class="stage">
-  <div class="roles">
-    <h1>MediKiosk</h1>
-    <p class="tag">AI clinical history intake for AYUSH OPDs. The patient records their history and scans their old
-      reports before consultation; the doctor reads a verified, structured summary the moment they walk in.</p>
-    <div class="rolegrid">
-      <a class="role" href="/kiosk">
-        <span class="ic"><svg class="ic" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.5" r="3.8"/><path d="M4.5 21v-1.5A5.5 5.5 0 0 1 10 14h4a5.5 5.5 0 0 1 5.5 5.5V21"/></svg></span>
-        <b>I am a Patient</b>
-        <span class="d">Answer a few questions by speaking or tapping, and scan your old reports. About four minutes.</span>
-        <em>OPD KIOSK →</em>
-      </a>
-      <a class="role" href="/doctor">
-        <span class="ic"><svg class="ic" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v5a4.5 4.5 0 0 0 9 0V3"/><path d="M4 3h3M13.5 3h3"/><path d="M10.5 12.5v2.5a5 5 0 0 0 10 0v-1.2"/><circle cx="20.5" cy="11.5" r="2"/></svg></span>
-        <b>I am a Doctor</b>
-        <span class="d">See the live OPD queue, read structured histories with their sources, and prescribe.</span>
-        <em>CONSULTATION CONSOLE →</em>
-      </a>
-      <a class="role" href="/about">
-        <span class="ic"><svg class="ic" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20c-4.5 0-8-2.8-8-6 0-1 .4-1.9 1-2.6 1.6.4 3 1.3 4 2.4"/><path d="M12 20c4.5 0 8-2.8 8-6 0-1-.4-1.9-1-2.6-1.6.4-3 1.3-4 2.4"/><path d="M12 20c-2.4-1.8-4-4.4-4-7 0-2.4 1.5-4.8 4-6.8 2.5 2 4 4.4 4 6.8 0 2.6-1.6 5.2-4 7Z"/></svg></span>
-        <b>How it works</b>
-        <span class="d">The intake loop, the Ayurveda module, and what is real versus mocked in this build.</span>
-        <em>OVERVIEW →</em>
-      </a>
+<!-- ── header: menu on the left, the two doors on the right ── -->
+<header class="top">
+  <div class="wrap">
+    <div class="left">
+      <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false" aria-controls="drawer"><span></span></button>
+      <a class="brand" href="/"><img src="/icons/icon.svg" alt=""><span>MediKiosk</span></a>
+    </div>
+    <div class="right">
+      <a class="btn btn-ghost" href="/doctor">Doctor sign in</a>
+      <a class="btn btn-cream" href="/kiosk">Patient check-in</a>
     </div>
   </div>
+</header>
+<div class="drawer" id="drawer" aria-hidden="true">
+  <nav>
+    <a href="#why">Why MediKiosk <small>The idea</small></a>
+    <a href="#numbers">Time saved <small>The numbers</small></a>
+    <a href="#journey">How a visit works <small>Six steps</small></a>
+    <a href="#inside">What's inside <small>Features</small></a>
+    <a href="#compare">Versus the OPD desk <small>Compare</small></a>
+    <a href="#faq">Questions <small>FAQ</small></a>
+    <a href="/about">About this build <small>Real vs mocked</small></a>
+  </nav>
+  <div class="foot">
+    <a class="btn btn-cream" href="/kiosk">Patient check-in</a>
+    <a class="btn btn-ghost" href="/doctor">Doctor sign in</a>
+  </div>
+</div>
+
+<main>
+
+<!-- ── hero ── -->
+<section class="hero" style="padding:0">
+  <div class="wrap">
+    <div class="copy">
+      <span class="badge rv"><i></i>SIH26047 · Ministry of Ayush · prototype</span>
+      <h1 class="rv d1">Your history, ready before you sit down.</h1>
+      <p class="tag dev rv d2">आपकी बात, आपकी भाषा में — डॉक्टर तक पहले पहुँचे।</p>
+      <p class="lede rv d2">MediKiosk listens to the patient in their own language, reads the papers they already carry, and puts a verified clinical history on the doctor's screen before the consultation begins.</p>
+      <div class="cta rv d3">
+        <a class="btn btn-clay" href="/kiosk">Start as a patient</a>
+        <a class="btn btn-sage" href="/doctor">Open the doctor console</a>
+      </div>
+    </div>
+    <div class="art" aria-hidden="true">
+      <img id="hero-photo" src="/img/hero-doctor.jpg" alt="" onerror="this.remove();document.getElementById('hero-ph').style.display='grid'">
+      <div class="ph" id="hero-ph" style="display:none">
+        <svg viewBox="0 0 400 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6FB29F" stop-opacity=".55"/><stop offset="1" stop-color="#6FB29F" stop-opacity=".05"/></linearGradient></defs>
+          <circle cx="200" cy="130" r="72" fill="url(#g)"/>
+          <path d="M60 480V330c0-60 50-95 140-95s140 35 140 95v150Z" fill="url(#g)"/>
+          <path d="M120 300l80 70 80-70" stroke="#284849" stroke-opacity=".35" stroke-width="3" stroke-linecap="round"/>
+          <path d="M150 380h100" stroke="#284849" stroke-opacity=".35" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <small>Photo goes here — public/img/hero-doctor.jpg</small>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── why ── -->
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow rv">Why MediKiosk</span>
+      <h2 class="rv d1">Finally, a history the doctor can trust — not a form the patient guessed at.</h2>
+      <p class="lede rv d2">Hospital registration captures a name and an age. Health apps assume a smartphone and a login. Neither reads the crumpled prescription in the patient's hand. MediKiosk does both, in the patient's language, and reads it back to them before the doctor sees a word.</p>
+    </div>
+    <div class="cols">
+      <div class="col rv"><div class="num">01</div><h3>Speak or tap, in seven languages</h3><p>Hindi, English, Marathi, Gujarati, Punjabi, Tamil and Telugu — the whole interview, every option read aloud. Follow-up questions are written for the complaint, the way a physician would ask them.</p></div>
+      <div class="col rv d1"><div class="num">02</div><h3>The paper they already carry</h3><p>Old prescriptions, lab reports and discharge summaries are photographed at the kiosk and read line by line — diagnoses, medicines with doses, values against their reference ranges, in date order.</p></div>
+      <div class="col rv d2"><div class="num">03</div><h3>Read back, confirmed, then verified</h3><p>The patient hears their own history in their language and confirms it. The doctor accepts or amends each line, is warned about drug interactions as they prescribe, and that becomes the next visit's baseline.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── the numbers ── -->
+<section class="stats" id="numbers">
+  <div class="wrap">
+    <span class="eyebrow rv">Time back to the consultation</span>
+    <h2 class="rv d1">The history is taken before the door opens.</h2>
+    <div class="grid">
+      <div class="stat rv"><b><span data-count="4">0</span><small>min</small></b><span>at the kiosk, from choosing a language to holding a token slip</span></div>
+      <div class="stat rv d1"><b><span data-count="12">0</span><small>min</small></b><span>saved per consultation, against taking the history verbally in the room</span></div>
+      <div class="stat rv d2"><b><span data-count="7">0</span></b><span>languages, for the entire interview — not just the buttons</span></div>
+      <div class="stat rv d3"><b><span data-count="0">0</span></b><span>paper forms. The patient's own papers are the input, not another form</span></div>
+    </div>
+    <p class="note rv">Prototype estimates from the demo flow with the example cases. Not yet measured in a live OPD.</p>
+  </div>
+</section>
+
+<!-- ── the journey ── -->
+<section class="journey" id="journey">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow rv">How a visit works</span>
+      <h2 class="rv d1">Six steps, and the patient does the first five before they sit down.</h2>
+    </div>
+    <div class="steps">
+      <div class="step rv"><div class="dot">1</div><h3>Choose a language</h3><p>Seven scripts on the first screen. From here on every word, prompt and option is in that language, and read aloud on request.</p><span class="who">Patient · kiosk</span></div>
+      <div class="step rv d1"><div class="dot">2</div><h3>Say who you are</h3><p>Mobile number, ABHA number or Aadhaar — a one-time code proves the phone. Returning patients are recognised; new ones get an ABHA and, if they like, a login for their records.</p><span class="who">Patient · kiosk</span></div>
+      <div class="step rv d2"><div class="dot">3</div><h3>Answer by voice or by tap</h3><p>Chief complaint, then follow-up questions written for that complaint. Point to where it hurts on a body map. An Ayurvedic history — Prakriti, Agni, Koshtha — if the hospital asks for it.</p><span class="who">Patient · kiosk</span></div>
+      <div class="step rv"><div class="dot">4</div><h3>Scan the papers you brought</h3><p>Hold each report or prescription to the camera. It is read, dated and filed into a timeline; abnormal values are flagged before anyone looks.</p><span class="who">Patient · kiosk</span></div>
+      <div class="step rv d1"><div class="dot">5</div><h3>Hear it back, take your token</h3><p>The history is read back in the patient's language. They confirm it, choose what the doctor may see, and get a token slip with a QR code and a department.</p><span class="who">Patient · kiosk</span></div>
+      <div class="step rv d2"><div class="dot">6</div><h3>The doctor verifies and prescribes</h3><p>The structured history is already on the console, sources beside every line. The doctor accepts or amends, sees interaction warnings while prescribing, and pushes a FHIR record to the patient's ABHA locker.</p><span class="who">Doctor · console</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── what's inside ── -->
+<section class="features" id="inside">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow rv">What's inside</span>
+      <h2 class="rv d1">Every module the problem statement asks for, and where to see it.</h2>
+      <p class="lede rv d2">Built means working in this deployment. Partial means working with a stated limit. The full list, including what is mocked and why, is on the <a href="/about">about page</a>.</p>
+    </div>
+    <div class="tiles">
+      <div class="tile rv"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/></svg></div><h3>Adaptive questioning</h3><p>Four to five follow-ups written for the chief complaint — SOCRATES elements, tap-able options, "asked because you mentioned…".</p><span class="status">Built</span></div>
+      <div class="tile rv d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><h3>Voice, both ways</h3><p>A mic on every open question and spoken next / back / repeat. Every screen reads itself aloud, in all seven languages, on any machine.</p><span class="status">Built</span></div>
+      <div class="tile rv d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4-3-7-6.5-7-10a7 7 0 0 1 14 0c0 3.5-3 7-7 10Z"/><path d="M12 4v17"/></svg></div><h3>Ayurveda history mode</h3><p>Dashavidha Pariksha, Agni, Koshtha, Ahara-Vihara — all ten parameters, Vikriti kept apart from Prakriti.</p><span class="status">Built</span></div>
+      <div class="tile rv"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg></div><h3>Red-flag triage</h3><p>An emergency button or a red-flag answer: the token turns priority, the case tops the queue, the console sounds, and staff get an SMS and email.</p><span class="status">Built</span></div>
+      <div class="tile rv d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><h3>Reads the paper</h3><p>Printed and handwritten prescriptions, lab reports, discharge summaries — read, extracted, dated into a timeline, abnormal values in red.</p><span class="status">Built</span></div>
+      <div class="tile rv d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8 8 8M16 8l-8 8"/><rect x="3" y="3" width="18" height="18" rx="9"/></svg></div><h3>Drug interaction check</h3><p>Scanned papers, reported medicines and today's prescription as it is typed — curated rules for allopathic and Ayurvedic pairs.</p><span class="status">Built</span></div>
+      <div class="tile rv"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8ZM6 21v-2a6 6 0 0 1 12 0v2"/></svg></div><h3>Consent first, revocable</h3><p>Four separate permissions, read aloud. "Withdraw consent" on the patient's dashboard locks every clinician out of that visit.</p><span class="status">Built</span></div>
+      <div class="tile rv d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/><path d="M8 4v16"/></svg></div><h3>FHIR R4 record</h3><p>A real document bundle — Composition, Condition with ICD-10 and NAMASTE codes, Observations, Consent — downloadable from the console. The push awaits ABDM sandbox access.</p><span class="status partial">Partial</span></div>
+      <div class="tile rv d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 15h3"/></svg></div><h3>The patient keeps a copy</h3><p>A login ID sent by SMS and email; "My records" shows every visit, document, diagnosis and prescription, read-only, for good.</p><span class="status">Built</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── compare ── -->
+<section class="compare" id="compare">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow rv">Versus the OPD desk today</span>
+      <h2 class="rv d1">What changes when the history is taken at the kiosk.</h2>
+    </div>
+    <table class="rv">
+      <thead><tr><th scope="col">At the visit</th><th scope="col">Registration desk today</th><th scope="col">MediKiosk</th></tr></thead>
+      <tbody>
+        <tr><td>History taken in the patient's own language</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>Whatever the desk speaks</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Seven languages, spoken or tapped</small></td></tr>
+        <tr><td>Old reports and prescriptions digitised</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>Stay in the plastic bag</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Read, extracted, filed by date</small></td></tr>
+        <tr><td>Doctor sees the history before the patient sits</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>Name, age, department</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Structured, with sources beside each line</small></td></tr>
+        <tr><td>Red flags reach triage staff immediately</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>If someone notices in the queue</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Top of queue, alarm, SMS and email</small></td></tr>
+        <tr><td>Drug interaction warning while prescribing</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>From memory</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Against scanned papers and reported medicines</small></td></tr>
+        <tr><td>Consent recorded, explained aloud, revocable</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>A signature on a form, if that</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Four permissions, withdrawable any time</small></td></tr>
+        <tr><td>The patient keeps their own record</td><td class="no"><span class="mark bad" aria-label="No"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg></span><small>The paper, until it is lost</small></td><td class="yes"><span class="mark ok" aria-label="Yes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 5"/></svg></span><small>Login by SMS and email; every visit, for good</small></td></tr>
+        <tr><td>Time on history-taking, per patient</td><td class="no"><small style="font-size:16px;color:var(--teal)">10–15 min in the room</small></td><td class="yes"><small style="font-size:16px;color:var(--teal)">~3 min to verify what is already there</small></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── FAQ ── -->
+<section class="faq" id="faq">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow rv">Questions</span>
+      <h2 class="rv d1">The things judges and clinicians ask first.</h2>
+    </div>
+    <div class="rv d2">
+      <details><summary>Is MediKiosk a medical device? Does it diagnose?<span class="plus"></span></summary><p>No. It takes a history and organises documents. Every clinical decision is the physician's; the console shows a draft to accept, amend or reject, and records who did which. It is a Smart India Hackathon prototype and not a live service.</p></details>
+      <details><summary>Where does the patient's data go?<span class="plus"></span></summary><p>Voice never leaves the kiosk as audio — recognition runs in the browser and only text is kept. Document and summary text go to a model API over TLS. In a hospital deployment the same code points at a hospital-hosted model, so nothing leaves the building. Consent is granular and revocable from the patient's own dashboard.</p></details>
+      <details><summary>Which languages, and how deep does it go?<span class="plus"></span></summary><p>Hindi, English, Marathi, Gujarati, Punjabi, Tamil and Telugu — the whole interview: every question, option, consent line and error message, plus spoken prompts. The physician's summary is always in English; the read-back to the patient is in their language.</p></details>
+      <details><summary>Does it work when the Wi-Fi drops?<span class="plus"></span></summary><p>The kiosk shell — pages, scripts, language packs — is cached, so the screen never goes blank. Anything that needs the server (codes, summaries, the queue) waits for the network and says so, rather than showing stale data.</p></details>
+      <details><summary>Are the ABHA numbers real?<span class="plus"></span></summary><p>Not yet. They are validated by format and generated locally; issuing real ones needs ABDM sandbox credentials, which are applied for. The FHIR R4 bundle that would be pushed to the ABHA locker is real and downloadable today — only the transport is mocked.</p></details>
+      <details><summary>What if the patient cannot read, or cannot see well?<span class="plus"></span></summary><p>Audio-guided mode reads every screen, heading, hint and option aloud, and accepts spoken answers and spoken navigation. Large-text and high-contrast switches are on the accessibility screen. A screen left alone clears itself within two minutes.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- ── closing call ── -->
+<section class="close">
+  <div class="wrap">
+    <h2 class="rv">Ready to see a visit run end to end?</h2>
+    <p class="lede rv d1">Three minutes as a patient, then open the console as the doctor. The example cases load from the console if you want a full queue.</p>
+    <div class="cta rv d2">
+      <a class="btn btn-clay" href="/kiosk">Start as a patient</a>
+      <a class="btn btn-line" href="/doctor">Open the doctor console</a>
+    </div>
+  </div>
+</section>
+
 </main>
+
+<footer>
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <a class="brand" href="/"><img src="/icons/icon.svg" alt=""><span>MediKiosk</span></a>
+        <p>AI clinical history intake for AYUSH OPDs. Smart India Hackathon problem statement SIH26047, Ministry of Ayush, for the All India Institute of Ayurveda.</p>
+      </div>
+      <div>
+        <h4>Use it</h4>
+        <ul><li><a href="/kiosk">Patient kiosk</a></li><li><a href="/doctor">Doctor console</a></li><li><a href="/about">About this build</a></li></ul>
+      </div>
+      <div>
+        <h4>Read</h4>
+        <ul><li><a href="/about#terms">Terms of use</a></li><li><a href="/about#privacy">Privacy</a></li><li><a href="/about">Real vs mocked</a></li></ul>
+      </div>
+    </div>
+    <div class="legal"><span>Prototype · SIH26047 · not a live service · not a medical device</span><span>© 2026 MediKiosk team</span></div>
+  </div>
+</footer>
 <div class="demo-tag">Prototype · SIH26047 · not a live service</div>
-<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});</script>
+
+<script>
+(function () {
+  "use strict";
+  /* the drawer */
+  var burger = document.getElementById("burger"), drawer = document.getElementById("drawer");
+  function setMenu(open) {
+    document.documentElement.classList.toggle("menu-open", open);
+    burger.setAttribute("aria-expanded", String(open));
+    burger.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    drawer.setAttribute("aria-hidden", String(!open));
+    document.body.style.overflow = open ? "hidden" : "";
+  }
+  burger.addEventListener("click", function () { setMenu(!document.documentElement.classList.contains("menu-open")); });
+  drawer.addEventListener("click", function (e) { if (e.target.closest("a")) setMenu(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") setMenu(false); });
+
+  /* reveal on scroll, and count the numbers up once they are on screen */
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function countUp(el) {
+    var to = Number(el.dataset.count || 0), t0 = null, dur = 1400;
+    if (reduce || !to) { el.textContent = String(to); return; }
+    function tick(t) {
+      if (t0 === null) t0 = t;
+      var p = Math.min(1, (t - t0) / dur);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = String(Math.round(to * eased));
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  if ("IntersectionObserver" in window && !reduce) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        en.target.classList.add("in");
+        en.target.querySelectorAll("[data-count]").forEach(countUp);
+        if (en.target.hasAttribute("data-count")) countUp(en.target);
+        io.unobserve(en.target);
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
+    document.querySelectorAll(".rv").forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll(".rv").forEach(function (el) { el.classList.add("in"); });
+    document.querySelectorAll("[data-count]").forEach(function (el) { el.textContent = el.dataset.count; });
+  }
+
+  /* one FAQ open at a time, like an accordion */
+  var faq = document.querySelectorAll(".faq details");
+  faq.forEach(function (d) {
+    d.addEventListener("toggle", function () {
+      if (d.open) faq.forEach(function (o) { if (o !== d) o.open = false; });
+    });
+  });
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});
+})();
+</script>
 </body>
 </html>
