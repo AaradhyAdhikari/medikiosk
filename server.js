@@ -1211,7 +1211,7 @@ async function buildAiQuestions({ complaintEn, complaintText, language, ageYears
       (complaintText && complaintText !== complaintEn ? ` (patient's own words: "${String(complaintText).slice(0, 160)}")` : "") +
       (ageYears ? `. Patient: ${ageYears}-year-old ${sex === "F" ? "woman" : sex === "M" ? "man" : "person"}.` : ".") +
       "\n\nRules that matter more than cleverness:\n" +
-      "- 4 to 6 questions, each answerable by tapping one of 3 to 6 short options. No free-text questions.\n" +
+      "- 4 or 5 questions, each answerable by tapping one of 3 to 5 short options. No free-text questions.\n" +
       "- Every question must be one a patient can answer about their own body from what they feel or see. Never ask " +
       "them to know a diagnosis, a test result or a drug's purpose.\n" +
       "- NEVER name a diagnosis, suggest what the patient has, or ask a leading question. You are collecting history, " +
@@ -1225,7 +1225,7 @@ async function buildAiQuestions({ complaintEn, complaintText, language, ageYears
       '{"because": {"en": one short sentence like "Asked because you mentioned cough", "native": the same in the patient\'s language},\n' +
       ' "questions": [{"en": string, "native": string, "kind": "chips"|"multi", "socrates": one word, ' +
       '"options": [{"en": string, "native": string, "ic": string}]}]}',
-  }], 2200);
+  }], 3800);
   const raw = parseJson(text);
   const block = validateAiQuestions(raw, language);
   const keys = Object.keys(sets);
@@ -1256,7 +1256,7 @@ function validateAiQuestions(raw, language) {
       if (!oen || !onat || BANNED_Q.test(oen)) continue;
       if (language !== "en" && !/[^\x00-\x7F]/.test(onat)) onat = oen;   // a Latin option is tolerable; a Latin question is not
       opts.push({ en: oen, native: onat, ic: AI_Q_ICONS.includes(o.ic) ? o.ic : "faded" });
-      if (opts.length === 6) break;
+      if (opts.length === 5) break;
     }
     if (opts.length < 2) continue;
     questions.push({
@@ -1264,7 +1264,7 @@ function validateAiQuestions(raw, language) {
       kind: q.kind === "multi" ? "multi" : "chips",
       socrates: str(q.socrates, 24) || null, options: opts,
     });
-    if (questions.length === 6) break;
+    if (questions.length === 5) break;
   }
   if (questions.length < 3) {
     throw new Error("only " + questions.length + " usable question(s) of " + list.length +
