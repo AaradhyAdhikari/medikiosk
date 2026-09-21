@@ -105,7 +105,7 @@ function chain(clients, log) {
     return Promise.all(clients.map(async (c) => {
       const t0 = Date.now();
       try {
-        const text = await c.ask([{ type: "text", text: 'Reply with exactly this JSON and nothing else: {"ok":true}' }], 20);
+        const text = await c.ask([{ type: "text", text: 'Reply with exactly this JSON and nothing else: {"ok":true}' }], 60);
         const ok = /"ok"\s*:\s*true/.test(text);
         return { provider: c.provider, model: c.model, ok, ms: Date.now() - t0, error: ok ? null : "unexpected reply: " + text.slice(0, 60) };
       } catch (e) {
@@ -161,7 +161,8 @@ function makeClient({ provider, key, model, textModel, timeoutMs, log }) {
     }
   }
 
-  async function askWith(model, content, maxTokens) {
+  async function askWith(model, content, maxTokens, jsonMode) {
+    if (jsonMode === undefined) jsonMode = true;
     const signal = AbortSignal.timeout(timeoutMs || 90000);
     if (spec.style === "anthropic") {
       const res = await fetch(spec.url, {
@@ -177,20 +178,32 @@ function makeClient({ provider, key, model, textModel, timeoutMs, log }) {
 
     // Mistral and Groq both speak the OpenAI chat shape; they differ only in
     // how an inline image is spelled.
+    const body = {
+      model,
+      max_tokens: maxTokens || 3000,
+      messages: [{ role: "user", content: toChatContent(content, spec.style) }],
+    };
+    // Both callers ask for a JSON object and parse it. JSON mode makes the
+    // smaller models stop wrapping it in prose or half a code fence.
+    if (jsonMode) body.response_format = { type: "json_object" };
     const res = await fetch(spec.url, {
       method: "POST",
       signal,
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens || 3000,
-        messages: [{ role: "user", content: toChatContent(content, spec.style) }],
-        // Both callers ask for a JSON object and parse it. JSON mode makes the
-        // smaller models stop wrapping it in prose or half a code fence.
-        response_format: { type: "json_object" },
-      }),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(spec.label + " API " + res.status + " " + (await res.text()).slice(0, 200));
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 200);
+      /* Groq validates JSON-mode output and returns 400 when the model's
+         answer did not parse — usually a long answer cut off, sometimes a
+         model that strays. Ask once more without JSON mode; the caller's
+         parser copes with a code fence or a line of prose around the object. */
+      if (jsonMode && res.status === 400 && /validate JSON|json_validate/i.test(detail)) {
+        warn("  " + spec.label + ": JSON mode refused on " + model + " — retrying without it");
+        return askWith(model, content, maxTokens, false);
+      }
+      throw new Error(spec.label + " API " + res.status + " " + detail);
+    }
     const j = await res.json();
     const msg = j && j.choices && j.choices[0] && j.choices[0].message;
     const text = msg && msg.content;

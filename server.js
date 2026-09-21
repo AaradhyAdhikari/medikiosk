@@ -1225,7 +1225,7 @@ async function buildAiQuestions({ complaintEn, complaintText, language, ageYears
       '{"because": {"en": one short sentence like "Asked because you mentioned cough", "native": the same in the patient\'s language},\n' +
       ' "questions": [{"en": string, "native": string, "kind": "chips"|"multi", "socrates": one word, ' +
       '"options": [{"en": string, "native": string, "ic": string}]}]}',
-  }], 1400);
+  }], 2200);
   const raw = parseJson(text);
   const block = validateAiQuestions(raw, language);
   const keys = Object.keys(sets);
