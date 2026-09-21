@@ -70,6 +70,18 @@ const HOSPITAL = process.env.HOSPITAL_NAME || "All India Institute of Ayurveda";
    back to its own origin, which is right in production and wrong on a laptop. */
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 
+// The address to put in an email — a link has to be absolute. PUBLIC_URL if
+// set; otherwise the production hostname Vercel hands every function; failing
+// that, whatever host this request arrived on.
+function siteUrl(req) {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return "https://" + process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  const host = req && (req.headers["x-forwarded-host"] || req.headers.host);
+  if (!host) return "";
+  const proto = (req.headers["x-forwarded-proto"] || (/^(localhost|127\.)/.test(host) ? "http" : "https")).split(",")[0];
+  return proto + "://" + host;
+}
+
 // ─────────────────────────────────────────────────────────── store
 
 const EMPTY = { patients: [], clinicians: [], visits: [], documents: [], events: [], otps: [], aiQuestions: {}, seeded: false };
@@ -520,7 +532,6 @@ const doctorOf = (req) => unsign(cookies(req).mk_doctor);
 // SMS_PROVIDER=twilio   → real delivery, easiest signup, worst Indian rates.
 
 const smsProvider = () => (process.env.SMS_PROVIDER || "console").toLowerCase();
-const smsLive = () => smsProvider() !== "console";
 
 function normalisePhone(phone) {
   const d = String(phone).replace(/\D/g, "");
@@ -587,22 +598,114 @@ const sendAbhaSms = (phone, abha, name) =>
 const sendLoginIdSms = (phone, loginId, name) =>
   sendSms(phone, `Namaste${name ? " " + name : ""}. Your MediKiosk patient login ID is ${loginId}. Use it with your password to see your records. Never share your password. — ${HOSPITAL}`, { VAR1: loginId });
 
+// ─────────────────────────────────────────────────────────── email
+//
+// EMAIL_PROVIDER=console → messages print to this terminal. Free. Default.
+// EMAIL_PROVIDER=brevo   → real delivery. Free: 300 a day, to anyone, no
+//                          domain needed — the sender is the address you
+//                          verified at brevo.com. Needs BREVO_API_KEY and
+//                          EMAIL_FROM.
+//
+// Email carries what SMS carries — codes, the ABHA, the login ID, the triage
+// alert — to whoever has given an address. A clinician always has; a patient
+// may have. Indian SMS gateways need DLT paperwork a prototype cannot get,
+// so this is the channel that reaches a real inbox for free.
+
+const emailProvider = () => (process.env.EMAIL_PROVIDER || "console").toLowerCase();
+const EMAIL_FROM = String(process.env.EMAIL_FROM || "").trim();
+const validEmail = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || ""));
+
+// Plain text, wrapped in just enough HTML for a mail client to keep the
+// line breaks and not mangle the digits.
+function emailHtml(subject, text) {
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  return '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.5;color:#1a1a1a;max-width:560px">' +
+    '<h2 style="font-size:18px;margin:0 0 12px">' + esc(subject) + "</h2>" +
+    '<div style="white-space:pre-wrap">' + esc(text) + "</div>" +
+    '<p style="margin-top:20px;font-size:13px;color:#666">' + esc(HOSPITAL) + " · MediKiosk</p></div>";
+}
+
+async function sendEmail(to, subject, text) {
+  if (!validEmail(to)) throw new Error("no valid address");
+  const p = emailProvider();
+
+  if (p === "brevo") {
+    if (!process.env.BREVO_API_KEY || !EMAIL_FROM) throw new Error("Brevo: BREVO_API_KEY and EMAIL_FROM are both needed");
+    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json", "api-key": process.env.BREVO_API_KEY },
+      body: JSON.stringify({
+        sender: { name: process.env.EMAIL_FROM_NAME || HOSPITAL, email: EMAIL_FROM },
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+        htmlContent: emailHtml(subject, text),
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error("Brevo: " + (await r.text()).slice(0, 200));
+    return { ok: true, provider: p };
+  }
+
+  console.log(`\n  ✉️  Email to ${to}\n     ${subject}\n     ${text.replace(/\n/g, "\n     ")}\n`);
+  return { ok: true, provider: "console" };
+}
+
+/* A code goes to the phone and, when the patient has left an address, to the
+   inbox as well — two doors, because a trial SMS gateway may only reach the
+   numbers it has been told about. It counts as delivered if either door
+   opened for real; only when neither could is the patient stuck. Returns
+   whether the code actually left the building, which is what decides if the
+   screen may show it. */
+async function sendOtp(phone, code, email) {
+  const [sms, mail] = await Promise.allSettled([
+    sendOtpSms(phone, code),
+    validEmail(email)
+      ? sendEmail(email, `${code} is your MediKiosk code`, `${code} is your MediKiosk verification code. It expires in 10 minutes. Do not share it.`)
+      : Promise.reject(new Error("no email")),
+  ]);
+  if (sms.status === "rejected") console.error("  ✗ OTP SMS failed:", sms.reason.message);
+  if (mail.status === "rejected" && validEmail(email)) console.error("  ✗ OTP email failed:", mail.reason.message);
+  const smsReal = sms.status === "fulfilled" && sms.value.provider !== "console";
+  const mailReal = mail.status === "fulfilled" && mail.value.provider !== "console";
+  if (sms.status === "rejected" && mail.status === "rejected") throw new Error("neither SMS nor email could carry the code");
+  return { live: smsReal || mailReal, via: [smsReal ? "sms" : null, mailReal ? "email" : null].filter(Boolean) };
+}
+
+// The ABHA and the login ID, to the inbox as well when there is one.
+const sendAbhaEmail = (email, abha, name) =>
+  sendEmail(email, "Your ABHA number", `Namaste${name ? " " + name : ""}.\n\nYour ABHA number is ${abha}.\n\nShow this at any hospital to access your health records.`);
+const sendLoginIdEmail = (email, loginId, name, site) =>
+  sendEmail(email, "Your MediKiosk login ID", `Namaste${name ? " " + name : ""}.\n\nYour MediKiosk patient login ID is ${loginId}.\nUse it with your password to see your records${site ? " at " + site + "/kiosk.html" : ""}.\n\nNever share your password.`);
+
+// Best-effort, never awaited by the caller: a failed courtesy mail is logged,
+// not surfaced to the patient at the kiosk.
+const mailQuietly = (p) => p.catch((e) => console.error("  ✗ email failed:", e.message));
+
 /* Module A: a red flag "triggers immediate priority alert to triage staff
    rather than routine queueing". Top of the queue is not an alert — nobody
    is looking at the queue. This sends one, once per visit, to the phone in
    TRIAGE_PHONE through whichever SMS gateway is configured; in console mode
    it prints, like the OTPs. The doctor console also sounds on its own. */
 const TRIAGE_PHONE = String(process.env.TRIAGE_PHONE || "").replace(/\D/g, "");
+const TRIAGE_EMAIL = String(process.env.TRIAGE_EMAIL || "").trim();
 async function alertTriage(visit, reason) {
   if (visit.triageAlertedAt) return;               // one alert per visit, not one per screen
   visit.triageAlertedAt = now();
   const p = store.patients.find((x) => x.id === visit.patientId) || {};
   const who = [p.name, p.ageYears ? p.ageYears + "y" : null, p.sex].filter(Boolean).join(", ") || "patient";
   const msg = `EMERGENCY at kiosk — token ${visit.token} (${who}): ${reason}. Please attend. — ${HOSPITAL}`;
-  logEvent("triage_alerted", { visitId: visit.id, reason, to: TRIAGE_PHONE ? "sms" : "console-only" });
-  if (!TRIAGE_PHONE) { console.log("\n  🚨 " + msg + "\n     (set TRIAGE_PHONE in .env to send this by SMS)\n"); return; }
-  try { await sendSms(TRIAGE_PHONE, msg, { VAR1: visit.token }); }
-  catch (e) { console.error("  ! triage SMS failed:", e.message); }
+  const to = [TRIAGE_PHONE ? "sms" : null, validEmail(TRIAGE_EMAIL) ? "email" : null].filter(Boolean);
+  logEvent("triage_alerted", { visitId: visit.id, reason, to: to.length ? to.join("+") : "console-only" });
+  if (!to.length) { console.log("\n  🚨 " + msg + "\n     (set TRIAGE_PHONE or TRIAGE_EMAIL in .env to send this)\n"); return; }
+  if (TRIAGE_PHONE) {
+    try { await sendSms(TRIAGE_PHONE, msg, { VAR1: visit.token }); }
+    catch (e) { console.error("  ! triage SMS failed:", e.message); }
+  }
+  if (validEmail(TRIAGE_EMAIL)) {
+    try { await sendEmail(TRIAGE_EMAIL, "EMERGENCY at kiosk — token " + visit.token, msg); }
+    catch (e) { console.error("  ! triage email failed:", e.message); }
+  }
 }
 
 // ─────────────────────────────────────────────────────────── spoken prompts
@@ -1092,6 +1195,50 @@ const askAI = AI.ask;
 const readDocumentAI = AI.readDocument;
 const parseJson = AI.parseJson;
 let aiCheckCache = null;
+let notifyCheckCache = null;
+
+async function checkNotify() {
+  const out = [];
+  const probe = async (channel, provider, fn) => {
+    const t = Date.now();
+    try { const detail = await fn(); out.push({ channel, provider, ok: true, ms: Date.now() - t, detail, error: null }); }
+    catch (e) { out.push({ channel, provider, ok: false, ms: Date.now() - t, detail: null, error: String(e.message).slice(0, 200) }); }
+  };
+  const sp = smsProvider();
+  if (sp === "twilio") {
+    await probe("sms", sp, async () => {
+      const sid = process.env.TWILIO_ACCOUNT_SID, tok = process.env.TWILIO_AUTH_TOKEN;
+      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}.json`, {
+        headers: { Authorization: "Basic " + Buffer.from(sid + ":" + tok).toString("base64") }, signal: AbortSignal.timeout(10000),
+      });
+      if (!r.ok) throw new Error("Twilio " + r.status + " " + (await r.text()).slice(0, 120));
+      const j = await r.json();
+      return (j.type === "Trial" ? "trial account — delivers only to numbers verified in the Twilio console" : j.type || "ok") +
+        (process.env.TWILIO_FROM ? "" : "; TWILIO_FROM is not set");
+    });
+  } else if (sp === "console") {
+    out.push({ channel: "sms", provider: sp, ok: true, ms: 0, detail: "codes print in the server log and show on screen", error: null });
+  } else {
+    out.push({ channel: "sms", provider: sp, ok: Boolean(process.env.MSG91_AUTH_KEY || process.env.FAST2SMS_API_KEY), ms: 0,
+      detail: "key present; delivery depends on DLT approval", error: null });
+  }
+  const ep = emailProvider();
+  if (ep === "brevo") {
+    await probe("email", ep, async () => {
+      if (!EMAIL_FROM) throw new Error("EMAIL_FROM is not set");
+      const r = await fetch("https://api.brevo.com/v3/account", {
+        headers: { accept: "application/json", "api-key": process.env.BREVO_API_KEY || "" }, signal: AbortSignal.timeout(10000),
+      });
+      if (!r.ok) throw new Error("Brevo " + r.status + " " + (await r.text()).slice(0, 120));
+      const j = await r.json();
+      const plan = (j.plan || []).find((p) => p.credits != null);
+      return "sending as " + EMAIL_FROM + (plan ? "; " + plan.credits + " emails left today" : "");
+    });
+  } else {
+    out.push({ channel: "email", provider: ep, ok: true, ms: 0, detail: "messages print in the server log", error: null });
+  }
+  return out;
+}
 
 /* ── system of medicine ───────────────────────────────────────────────
    The patient chooses Ayurvedic, allopathic or both at the kiosk. An
@@ -1675,6 +1822,9 @@ async function api(req, res, pathname) {
       aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
       tts: TTS_ON,
       aiQuestions: AI_QUESTIONS_ON(),
+      // Which gateway carries codes and alerts. "console" means they print
+      // in the server log and show on screen.
+      sms: smsProvider(), email: emailProvider(),
       // Where the data lives. "memory" on a serverless host means nothing
       // survives a cold start and instances do not see each other.
       storage: firebaseDb ? "firebase" : (SERVERLESS ? "memory" : "file"),
@@ -1689,6 +1839,15 @@ async function api(req, res, pathname) {
       aiCheckCache = { at: Date.now(), result: await AI.check() };
     }
     return ok(res, { chain: AI.chain, providers: aiCheckCache.result, checkedAt: new Date(aiCheckCache.at).toISOString() });
+  }
+
+  // ---- are the SMS and email gateways really reachable with these keys?
+  // Sends nothing; asks each provider who it is. Same shape as /api/ai/check.
+  if (pathname === "/api/notify/check" && method === "GET") {
+    if (!notifyCheckCache || Date.now() - notifyCheckCache.at > 60000) {
+      notifyCheckCache = { at: Date.now(), result: await checkNotify() };
+    }
+    return ok(res, { channels: notifyCheckCache.result, checkedAt: new Date(notifyCheckCache.at).toISOString() });
   }
 
   // ---- spoken prompts, for languages this machine has no voice for
@@ -1737,18 +1896,20 @@ async function api(req, res, pathname) {
     if (store.otps.length > 500) store.otps.splice(0, 200);
     save();
 
+    const known = store.patients.find((p) => p.primaryPhone === digits || p.phone === digits);
+    let sent;
     try {
-      await sendOtpSms(digits, code);
+      sent = await sendOtp(digits, code, known && known.email);
     } catch (e) {
-      console.error("  ✗ SMS failed:", e.message);
+      console.error("  ✗ code not sent:", e.message);
       return bad(res, 502, "We could not send the code. Please ask staff for help.");
     }
-    logEvent("otp_sent", { phone: digits, provider: smsProvider() });
+    logEvent("otp_sent", { phone: digits, via: sent.via });
 
-    // The code is only ever returned to the browser in console mode, where no
-    // gateway exists and it has to be readable somewhere. With a real provider
-    // configured it goes to the phone and nowhere else.
-    return ok(res, { ok: true, code: smsLive() ? undefined : code, live: smsLive() });
+    // The code is only ever returned to the browser when no real gateway
+    // carried it, because then it has to be readable somewhere. Once it has
+    // gone to a phone or an inbox it goes there and nowhere else.
+    return ok(res, { ok: true, code: sent.live ? undefined : code, live: sent.live, via: sent.via });
   }
 
   // ---- patient: verify
@@ -1841,15 +2002,28 @@ async function api(req, res, pathname) {
     if (!s) return bad(res, 401, "Your session expired.");
     const patient = store.patients.find((p) => p.id === s.pid);
     if (!patient) return bad(res, 404, "Not found.");
-    const { name, ageYears, sex, heightCm, weightKg, language } = await readBody(req);
+    const { name, ageYears, sex, heightCm, weightKg, language, email } = await readBody(req);
     if (name != null && String(name).trim()) patient.name = String(name).trim();
     if (ageYears) patient.ageYears = Number(ageYears);
     if (sex) patient.sex = String(sex);
     if (heightCm) patient.heightCm = Number(heightCm);
     if (weightKg) patient.weightKg = Number(weightKg);
     if (language) patient.language = String(language);
+    // Optional. The ABHA went to the phone at check-in, before we could have
+    // asked for this; a fresh address gets it too, once, and the login ID
+    // if there already is one.
+    if (email != null && String(email).trim()) {
+      const mail = String(email).trim().toLowerCase();
+      if (!validEmail(mail)) return bad(res, 400, "That email address does not look right.");
+      if (mail !== patient.email) {
+        patient.email = mail;
+        if (patient.abhaNumber) mailQuietly(sendAbhaEmail(mail, patient.abhaNumber, patient.name));
+        if (patient.loginId) mailQuietly(sendLoginIdEmail(mail, patient.loginId, patient.name, siteUrl(req)));
+        logEvent("patient_email_set", { patientId: patient.id });
+      }
+    }
     save();
-    return ok(res, { ok: true, patient: { id: patient.id, name: patient.name, abhaNumber: patient.abhaNumber } });
+    return ok(res, { ok: true, patient: { id: patient.id, name: patient.name, abhaNumber: patient.abhaNumber, email: patient.email || null } });
   }
 
   // ---- patient: create the account — login ID and password
@@ -1878,6 +2052,7 @@ async function api(req, res, pathname) {
 
     sendLoginIdSms(patient.primaryPhone, patient.loginId, patient.name)
       .catch((e) => console.error("  ✗ Login ID SMS failed:", e.message));
+    if (patient.email) mailQuietly(sendLoginIdEmail(patient.email, patient.loginId, patient.name, siteUrl(req)));
 
     return ok(res, { ok: true, loginId: patient.loginId, abhaNumber: patient.abhaNumber });
   }
@@ -2368,12 +2543,13 @@ async function api(req, res, pathname) {
     const code = sixDigits();
     store.otps.push({ id: id(), phone: patient.primaryPhone, code, at: now(), used: false, attempts: 0 });
     save();
+    let sent;
     try {
-      await sendOtpSms(patient.primaryPhone, code);
+      sent = await sendOtp(patient.primaryPhone, code, patient.email);
     } catch (e) {
       return bad(res, 502, "We could not send the code to the linked mobile.");
     }
-    logEvent("identify_abha", { patientId: patient.id });
+    logEvent("identify_abha", { patientId: patient.id, via: sent.via });
 
     return ok(res, {
       ok: true,
@@ -2381,8 +2557,8 @@ async function api(req, res, pathname) {
       phone: patient.primaryPhone,
       maskedPhone: "•••••• " + patient.primaryPhone.slice(-4),
       name: patient.name,
-      code: smsLive() ? undefined : code,
-      live: smsLive(),
+      code: sent.live ? undefined : code,
+      live: sent.live, via: sent.via,
     });
   }
 
@@ -2403,18 +2579,20 @@ async function api(req, res, pathname) {
       pendingAadhaarLast4: a.slice(-4),
     });
     save();
+    const known = store.patients.find((p) => p.primaryPhone === digits || p.phone === digits);
+    let sent;
     try {
-      await sendOtpSms(digits, code);
+      sent = await sendOtp(digits, code, known && known.email);
     } catch (e) {
       return bad(res, 502, "We could not send the code to that mobile.");
     }
-    logEvent("identify_aadhaar", { last4: a.slice(-4) });
+    logEvent("identify_aadhaar", { last4: a.slice(-4), via: sent.via });
 
     return ok(res, {
       ok: true, phone: digits,
       maskedPhone: "•••••• " + digits.slice(-4),
-      code: smsLive() ? undefined : code,
-      live: smsLive(),
+      code: sent.live ? undefined : code,
+      live: sent.live, via: sent.via,
     });
   }
 
@@ -2457,6 +2635,15 @@ async function api(req, res, pathname) {
     logEvent("clinician_registered", { clinicianId: clinician.id, autoApproved: first });
 
     if (!first) {
+      const consoleUrl = siteUrl(req) + "/doctor.html";
+      mailQuietly(sendEmail(mail, "Your MediKiosk account is waiting for approval",
+        `Dr ${clinician.name},\n\nYour clinician account at ${HOSPITAL} has been created and is waiting for a registered colleague to approve it. You will get another email when that happens.\n\nConsole: ${consoleUrl}`));
+      for (const c of store.clinicians) {
+        if (c.approved && c.id !== clinician.id && validEmail(c.email)) {
+          mailQuietly(sendEmail(c.email, "A colleague is waiting for your approval",
+            `Dr ${c.name},\n\n${clinician.name} (${mail}${clinician.department ? ", " + clinician.department : ""}) has registered on MediKiosk at ${HOSPITAL} and needs approval before they can see the queue.\n\nSign in and open Colleagues to approve: ${consoleUrl}`));
+        }
+      }
       return ok(res, {
         ok: true, approved: false,
         message: "Your account has been created and is waiting for approval by a registered clinician."
@@ -2484,6 +2671,9 @@ async function api(req, res, pathname) {
     c.approved = true;
     save();
     logEvent("clinician_approved", { clinicianId: c.id, by: s.cid });
+    const approver = store.clinicians.find((x) => x.id === s.cid);
+    mailQuietly(sendEmail(c.email, "Your MediKiosk account is approved",
+      `Dr ${c.name},\n\n${approver ? approver.name : "A colleague"} has approved your clinician account at ${HOSPITAL}. You can sign in now:\n${siteUrl(req) + "/doctor.html"}`));
     return ok(res, { ok: true });
   }
 
@@ -2925,6 +3115,7 @@ async function api(req, res, pathname) {
     }
     console.log(`\n   AI:        ${aiOn() ? "on · " + AI.chain.join("  →  ") : "off — set GROQ_API_KEY, MISTRAL_API_KEY or ANTHROPIC_API_KEY in .env"}`);
     console.log(`   SMS:       ${smsProvider() === "console" ? "console (codes print here)" : smsProvider()}`);
+    console.log(`   Email:     ${emailProvider() === "console" ? "console (messages print here)" : emailProvider() + " as " + EMAIL_FROM}`);
     console.log(`   Languages: ${routed.langs + 2} translated · ${routed.added} routing keywords derived`);
     console.log("   Data:      ./data/db.json   (delete the data folder to start over)");
     console.log(`\n  ${line}`);

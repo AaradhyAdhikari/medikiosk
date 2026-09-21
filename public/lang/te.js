@@ -234,6 +234,12 @@ window.TR.te = {
   "Your name": "మీ పేరు",
   "e.g. Kamla Devi": "ఉదా. కమలా దేవి",
   "Age": "వయస్సు",
+
+  "Email (optional)": "ఇమెయిల్ (ఐచ్ఛికం)",
+
+  "e.g. kamla@gmail.com": "ఉదా. kamla@gmail.com",
+
+  "Your ABHA number and login ID will be sent here too": "మీ ABHA నంబర్ మరియు లాగిన్ ID ఇక్కడికి కూడా పంపబడతాయి",
   "Sex": "లింగం",
   "Female": "స్త్రీ",
   "Male": "పురుషుడు",

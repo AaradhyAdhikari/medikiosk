@@ -230,6 +230,12 @@ window.TR.mr = {
   "Your name": "तुमचे नाव",
   "e.g. Kamla Devi": "उदा. कमला देवी",
   "Age": "वय",
+
+  "Email (optional)": "ईमेल (ऐच्छिक)",
+
+  "e.g. kamla@gmail.com": "उदा. kamla@gmail.com",
+
+  "Your ABHA number and login ID will be sent here too": "तुमचा ABHA क्रमांक आणि लॉगिन ID इथेही पाठवले जातील",
   "Sex": "लिंग",
   "Female": "स्त्री",
   "Male": "पुरुष",

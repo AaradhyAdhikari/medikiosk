@@ -234,6 +234,12 @@ window.TR.gu = {
   "Your name": "તમારું નામ",
   "e.g. Kamla Devi": "દા.ત. કમલા દેવી",
   "Age": "ઉંમર",
+
+  "Email (optional)": "ઇમેઇલ (વૈકલ્પિક)",
+
+  "e.g. kamla@gmail.com": "દા.ત. kamla@gmail.com",
+
+  "Your ABHA number and login ID will be sent here too": "તમારો ABHA નંબર અને લૉગિન ID અહીં પણ મોકલવામાં આવશે",
   "Sex": "જાતિ",
   "Female": "સ્ત્રી",
   "Male": "પુરુષ",

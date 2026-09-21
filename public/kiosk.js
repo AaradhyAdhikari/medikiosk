@@ -7,7 +7,7 @@ var S = {
   aiBlock: null,        // { key, status: "loading"|"ready"|"failed", questions, because }
   method: null,           // "phone" | "abha" | "aadhaar"
   abhaInput: "", aadhaarInput: "",
-  name: "", ageYears: "", sex: "", heightCm: "", weightKg: "",
+  name: "", ageYears: "", sex: "", heightCm: "", weightKg: "", email: "",
   maskedPhone: "", knownName: "",
   consent: { record: true, docs: true, share: true, locker: false },
   visit: null, visitType: null, system: null,
@@ -921,15 +921,22 @@ function scProfile() {
         var lbl = [L("महिला", "Female"), L("पुरुष", "Male"), L("अन्य", "Other")][i];
         return '<button class="chip' + (S.sex === x ? " sel" : "") + '" data-s="' + x + '" style="justify-content:center">' + lbl + "</button>";
       }).join("") + "</div>" +
+    // Optional. The ABHA and login ID went to the phone; an inbox keeps them
+    // too, and a code can reach it when the SMS gateway cannot reach the phone.
+    '<label class="flabel" style="margin-top:12px">' + L("ईमेल (वैकल्पिक)", "Email (optional)") + "</label>" +
+    '<input class="field" id="em" type="email" inputmode="email" autocapitalize="off" value="' + esc(S.email) + '" placeholder="' + esc(L("जैसे — kamla@gmail.com", "e.g. kamla@gmail.com")) + '">' +
+    '<p class="q-en" style="margin-top:6px">' + L("आपका ABHA नंबर और लॉगिन ID यहाँ भी भेजे जाएँगे", "Your ABHA number and login ID will be sent here too") + "</p>" +
     (S.error ? '<div class="notice" style="margin-top:12px">' + esc(S.error) + "</div>" : "");
 
   foot.innerHTML = '<button class="btn" id="nx">' + L("आगे बढ़ें", "Continue") + "</button>";
-  var nm = document.getElementById("nm"), ag = document.getElementById("ag"), nx = document.getElementById("nx");
+  var nm = document.getElementById("nm"), ag = document.getElementById("ag"), em = document.getElementById("em"), nx = document.getElementById("nx");
   function upd() {
     S.name = nm.value; S.ageYears = ag.value.replace(/\D/g, ""); ag.value = S.ageYears;
-    nx.disabled = !S.name.trim() || !S.ageYears || !S.sex;
+    S.email = em.value.trim();
+    var mailOk = !S.email || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(S.email);
+    nx.disabled = !S.name.trim() || !S.ageYears || !S.sex || !mailOk;
   }
-  nm.oninput = upd; ag.oninput = upd; upd();
+  nm.oninput = upd; ag.oninput = upd; em.oninput = upd; upd();
   body.onclick = function (e) {
     var b = e.target.closest("[data-s]"); if (!b) return;
     S.sex = b.dataset.s;
@@ -941,7 +948,7 @@ function scProfile() {
     S.busy = true; nx.disabled = true; nx.textContent = L("सेव हो रहा है…", "Saving…");
     try {
       await api("/api/patient/profile", {
-        name: S.name, ageYears: S.ageYears, sex: S.sex, language: S.lang,
+        name: S.name, ageYears: S.ageYears, sex: S.sex, language: S.lang, email: S.email || undefined,
       });
       S.knownName = S.name; S.busy = false; S.consentBack = "account"; go("account");
     } catch (e) { S.error = e.message; S.busy = false; render(); }

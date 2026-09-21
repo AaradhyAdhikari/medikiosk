@@ -234,6 +234,12 @@ window.TR.pa = {
   "Your name": "ਤੁਹਾਡਾ ਨਾਂ",
   "e.g. Kamla Devi": "ਜਿਵੇਂ — ਕਮਲਾ ਦੇਵੀ",
   "Age": "ਉਮਰ",
+
+  "Email (optional)": "ਈਮੇਲ (ਵਿਕਲਪਿਕ)",
+
+  "e.g. kamla@gmail.com": "ਜਿਵੇਂ kamla@gmail.com",
+
+  "Your ABHA number and login ID will be sent here too": "ਤੁਹਾਡਾ ABHA ਨੰਬਰ ਅਤੇ ਲੌਗਇਨ ID ਇੱਥੇ ਵੀ ਭੇਜੇ ਜਾਣਗੇ",
   "Sex": "ਲਿੰਗ",
   "Female": "ਔਰਤ",
   "Male": "ਮਰਦ",

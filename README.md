@@ -122,7 +122,9 @@ Until you configure a gateway, OTP codes print in the terminal and appear on scr
 for development and fine for a demo. For real delivery, pick one provider.
 
 **Do this at least a week before you need it.** Transactional SMS in India requires DLT
-registration, and approval is not instant.
+registration, and approval is not instant. A student team cannot get DLT — it needs a company PAN
+and GST — so for a demo the realistic free path is **Option C, the Twilio trial**, plus **email**
+(next section), which is free and reaches anyone.
 
 ### Option A · Fast2SMS — easiest in India
 
@@ -150,22 +152,62 @@ registration, and approval is not instant.
    ```
 5. Restart the server.
 
-### Option C · Twilio — works in minutes, costs more
+### Option C · Twilio — free trial, works in minutes, no DLT
 
-1. Sign up at [twilio.com](https://twilio.com), verify your own number, buy a number with SMS
-   capability.
-2. Copy the Account SID and Auth Token from the console.
-3. In `.env`:
+The trial comes with free credit and needs no paperwork. The one rule: **a trial account only
+delivers to phone numbers you have verified in the Twilio console.** For a demo, verify every
+phone your team will use at the kiosk. Delivery to Indian networks from a foreign number can lag by
+a minute; the code also goes to the patient's inbox if they gave an email.
+
+1. Sign up at [twilio.com/try-twilio](https://www.twilio.com/try-twilio). Verify your own mobile
+   when it asks.
+2. Console home → **Get a trial phone number** → accept the number it offers. That is `TWILIO_FROM`.
+3. Console home → copy **Account SID** and **Auth Token**.
+4. **Phone Numbers → Manage → Verified Caller IDs → Add** — add every phone that will receive a
+   code during the demo (teammates, the judge's if they offer).
+5. In `.env` (or Vercel → Settings → Environment Variables, then redeploy):
    ```
    SMS_PROVIDER=twilio
    TWILIO_ACCOUNT_SID=ACxxxxxxxx
    TWILIO_AUTH_TOKEN=your-token
    TWILIO_FROM=+1XXXXXXXXXX
    ```
-4. Restart the server.
+6. Restart the server. Open `/api/notify/check` — it should say `trial account — delivers only to
+   numbers verified in the Twilio console`.
 
-Once a provider is live, the code stops appearing on screen — it goes to the phone and nowhere
-else. Test with your own number first.
+Once a provider is live, the code stops appearing on screen — it goes to the phone (and inbox) and
+nowhere else. Test with your own number first.
+
+---
+
+# Turning on email
+
+Email carries everything SMS carries — the OTP code, the ABHA number, the login ID, the triage
+alert — to anyone who has given an address. A clinician always has one (it is their login); a
+patient can leave one on the "About you" screen. Clinicians also get mail when their account is
+waiting for approval, when it is approved, and when a colleague is waiting for theirs.
+
+Until you configure a provider, emails print in the terminal like the SMS does.
+
+### Brevo — free, 300 a day, any recipient, no domain needed
+
+1. Sign up at [brevo.com](https://www.brevo.com) with the address you want mail to come **from**
+   (a Gmail is fine). Confirm the email they send you.
+2. Skip the onboarding questions. Top-right profile menu → **Senders & IP** (or **Senders**) —
+   your signup address is listed and verified. That is `EMAIL_FROM`.
+3. Profile menu → **SMTP & API** → **API Keys** tab → **Generate a new API key** → name it
+   `medikiosk` → copy it once; it is not shown again.
+4. In `.env` (or Vercel → Settings → Environment Variables, then redeploy):
+   ```
+   EMAIL_PROVIDER=brevo
+   BREVO_API_KEY=xkeysib-...
+   EMAIL_FROM=the-address-you-signed-up-with@gmail.com
+   TRIAGE_EMAIL=someone-on-duty@example.com
+   ```
+5. Restart the server. Open `/api/notify/check` — it should say `sending as …; N emails left
+   today`.
+
+The free plan sends with a small Brevo footer and stops at 300 a day. Both are fine for a kiosk.
 
 ---
 

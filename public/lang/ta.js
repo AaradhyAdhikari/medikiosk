@@ -234,6 +234,12 @@ window.TR.ta = {
   "Your name": "உங்கள் பெயர்",
   "e.g. Kamla Devi": "எ.கா. கமலா தேவி",
   "Age": "வயது",
+
+  "Email (optional)": "மின்னஞ்சல் (விருப்பத்திற்குரியது)",
+
+  "e.g. kamla@gmail.com": "எ.கா. kamla@gmail.com",
+
+  "Your ABHA number and login ID will be sent here too": "உங்கள் ABHA எண் மற்றும் உள்நுழைவு ID இங்கும் அனுப்பப்படும்",
   "Sex": "பாலினம்",
   "Female": "பெண்",
   "Male": "ஆண்",
