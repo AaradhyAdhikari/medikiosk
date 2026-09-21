@@ -226,8 +226,7 @@ section{padding:clamp(64px,9vw,128px) 0}
 .cmp .row>div:last-child{background:var(--sage-soft)}
 .cmp .q{font-weight:700;font-size:16.5px}
 .cmp .a{display:flex;align-items:flex-start;gap:12px;font-size:15px;color:var(--ink-2)}
-.cmp .a:not(:has(.mark)){align-items:center;align-self:center}
-.cmp .row{align-items:center}
+.cmp .a:not(:has(.mark)){align-items:center;justify-content:center;text-align:center}
 .mark{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;transform:scale(.6);opacity:0;transition:transform .5s var(--ease),opacity .4s}
 .in .mark{transform:none;opacity:1}
 .mark.ok{background:var(--sage-deep);color:#fff}
