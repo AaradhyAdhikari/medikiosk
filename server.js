@@ -1183,7 +1183,7 @@ const AI_QUESTIONS_ON = () => aiOn() && String(process.env.AI_QUESTIONS || "on")
 const aiQuestionCache = new Map();               // "lang|complaint" -> block
 const AI_Q_ICONS = ["joint", "head", "stomach", "lungs", "fever", "sleep", "skin", "chest", "sun", "clock", "flame",
   "blood", "heart", "bone", "plate", "walk", "cross", "faded", "snow", "sunrise", "pill", "dust", "spiral", "egg", "hourglass"];
-const BANNED_Q = /\b(diagnos|you have|you might have|cancer|tumou?r|heart attack|stroke|hiv|tuberculosis)\b/i;
+const BANNED_Q = /\b(diagnos|you have|you might have|cancer|tumou?r|heart attack|stroke|hiv|tuberculosis|tb)\b/i;
 
 async function buildAiQuestions({ complaintEn, complaintText, language, ageYears, sex }) {
   const key = (language || "hi") + "|" + String(complaintEn || complaintText || "").toLowerCase().trim();
@@ -1222,7 +1222,6 @@ async function buildAiQuestions({ complaintEn, complaintText, language, ageYears
   }], 1800);
   const raw = parseJson(text);
   const block = validateAiQuestions(raw, language);
-  if (!block) throw new Error("model returned an unusable question set");
   if (aiQuestionCache.size > 300) aiQuestionCache.delete(aiQuestionCache.keys().next().value);
   aiQuestionCache.set(key, block);
   return Object.assign({ cached: false }, block);
@@ -1259,7 +1258,10 @@ function validateAiQuestions(raw, language) {
     });
     if (questions.length === 6) break;
   }
-  if (questions.length < 3) return null;
+  if (questions.length < 3) {
+    throw new Error("only " + questions.length + " usable question(s) of " + list.length +
+      (list.length && language !== "en" ? " — native text missing or in Latin script" : ""));
+  }
   const b = raw.because || {};
   const because = { en: str(b.en, 120) || "Asked because of what you told us", native: str(b.native, 160) || null };
   if (!because.native || (language !== "en" && !/[^\x00-\x7F]/.test(because.native))) because.native = language === "en" ? because.en : null;
@@ -2107,7 +2109,7 @@ async function api(req, res, pathname) {
     } catch (e) {
       console.warn("  ! ai questions failed, static block will be used:", String(e.message).slice(0, 140));
       logEvent("ai_questions_failed", { visitId: visit.id, message: String(e.message).slice(0, 200) });
-      return ok(res, { source: "static", reason: "failed" });
+      return ok(res, { source: "static", reason: "failed", detail: String(e.message).slice(0, 200) });
     }
   }
 
