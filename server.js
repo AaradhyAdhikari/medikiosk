@@ -72,7 +72,7 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 
 // ─────────────────────────────────────────────────────────── store
 
-const EMPTY = { patients: [], clinicians: [], visits: [], documents: [], events: [], otps: [], seeded: false };
+const EMPTY = { patients: [], clinicians: [], visits: [], documents: [], events: [], otps: [], aiQuestions: {}, seeded: false };
 let store = null;
 const INSTANCE_ID = crypto.randomBytes(3).toString("hex");   // tells one serverless instance from another
 
@@ -1180,14 +1180,20 @@ function DEPARTMENT_SPEC(system) {
    AI_QUESTIONS=off turns it off outright. One call per complaint, cached,
    so a free tier's rate limit is never the patient's wait. */
 const AI_QUESTIONS_ON = () => aiOn() && String(process.env.AI_QUESTIONS || "on").toLowerCase() !== "off";
-const aiQuestionCache = new Map();               // "lang|complaint" -> block
+// Generated sets live in the store — shared by every instance and kept across
+// cold starts — so the first patient per complaint and language pays the
+// three seconds and everyone after them gets the block at once.
+const questionSets = () => (store.aiQuestions = store.aiQuestions && typeof store.aiQuestions === "object" ? store.aiQuestions : {});
 const AI_Q_ICONS = ["joint", "head", "stomach", "lungs", "fever", "sleep", "skin", "chest", "sun", "clock", "flame",
   "blood", "heart", "bone", "plate", "walk", "cross", "faded", "snow", "sunrise", "pill", "dust", "spiral", "egg", "hourglass"];
 const BANNED_Q = /\b(diagnos|you have|you might have|cancer|tumou?r|heart attack|stroke|hiv|tuberculosis|tb)\b/i;
 
 async function buildAiQuestions({ complaintEn, complaintText, language, ageYears, sex }) {
-  const key = (language || "hi") + "|" + String(complaintEn || complaintText || "").toLowerCase().trim();
-  if (aiQuestionCache.has(key)) return Object.assign({ cached: true }, aiQuestionCache.get(key));
+  // Hashed: the store is a Firebase tree, whose keys may not contain . # $ / [ ]
+  // — and a patient's own words can contain any of them.
+  const key = crypto.createHash("sha1").update((language || "hi") + "|" + String(complaintEn || complaintText || "").toLowerCase().trim()).digest("hex").slice(0, 24);
+  const sets = questionSets();
+  if (sets[key]) return Object.assign({ cached: true }, sets[key]);
   const langName = LANG_NAMES[language] || "Hindi";
   const native = language === "en" ? "" :
     `Every "native" field is that text in ${langName}, in ${langName}'s own script (never transliterated into Latin letters), ` +
@@ -1219,11 +1225,13 @@ async function buildAiQuestions({ complaintEn, complaintText, language, ageYears
       '{"because": {"en": one short sentence like "Asked because you mentioned cough", "native": the same in the patient\'s language},\n' +
       ' "questions": [{"en": string, "native": string, "kind": "chips"|"multi", "socrates": one word, ' +
       '"options": [{"en": string, "native": string, "ic": string}]}]}',
-  }], 1800);
+  }], 1400);
   const raw = parseJson(text);
   const block = validateAiQuestions(raw, language);
-  if (aiQuestionCache.size > 300) aiQuestionCache.delete(aiQuestionCache.keys().next().value);
-  aiQuestionCache.set(key, block);
+  const keys = Object.keys(sets);
+  if (keys.length >= 300) delete sets[keys.sort((a, b) => String(sets[a].generatedAt).localeCompare(String(sets[b].generatedAt)))[0]];
+  sets[key] = block;
+  save();
   return Object.assign({ cached: false }, block);
 }
 

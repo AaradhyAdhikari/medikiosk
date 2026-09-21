@@ -14,6 +14,11 @@ const PROVIDERS = {
   groq: {
     keyVar: "GROQ_API_KEY",
     model: "qwen/qwen3.8-27b",                 // Groq's current vision model (JSON mode, 3 images/request)
+    // Free-tier limits are per model. Text-only work — the summary, the
+    // follow-up questions — goes to a separate model with its own budget, so
+    // a scan and a summary in the same minute do not fight over one quota.
+    textModel: "llama-3.3-70b-versatile",
+    textAlsoTry: ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"],
     // Groq retires models often. When the one above answers "does not
     // exist", these are tried in turn before the provider is given up on.
     alsoTry: ["qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct"],
@@ -63,6 +68,7 @@ function configure(env, opts) {
       // AI_MODEL_GROQ / AI_MODEL_MISTRAL pin one provider's model; AI_MODEL
       // (or the old ANTHROPIC_MODEL) applies to whichever is first.
       model: env["AI_MODEL_" + p.toUpperCase()] || (p === order[0] && (env.AI_MODEL || env.ANTHROPIC_MODEL)) || PROVIDERS[p].model,
+      textModel: env["AI_TEXT_MODEL_" + p.toUpperCase()] || PROVIDERS[p].textModel || null,
       timeoutMs,
       log: opts.log,
     }));
@@ -110,7 +116,7 @@ function chain(clients, log) {
 
   return {
     provider: first.provider, model: first.model, label: first.label, on: true,
-    chain: clients.map((c) => c.provider + " · " + c.model),
+    chain: clients.map((c) => c.provider + " · " + c.model + (c.textModel && c.textModel !== c.model ? " (text: " + c.textModel + ")" : "")),
     ask: (content, maxTokens) => viaEach((c) => c.ask(content, maxTokens), "summary"),
     readDocument: (dataUrl) => viaEach((c) => c.readDocument(dataUrl), "document read"),
     check,
@@ -118,7 +124,7 @@ function chain(clients, log) {
   };
 }
 
-function makeClient({ provider, key, model, timeoutMs, log }) {
+function makeClient({ provider, key, model, textModel, timeoutMs, log }) {
   const spec = PROVIDERS[provider];
   if (!spec) throw new Error("Unknown AI provider: " + provider);
   const warn = log || ((...a) => console.warn(...a));
@@ -131,15 +137,22 @@ function makeClient({ provider, key, model, timeoutMs, log }) {
      the next model on the list may well exist. Everything else is thrown. */
   const goneModel = (e) => /model.{0,40}(does not exist|not found|decommissioned|deprecated|no longer)|not available in your subscription|tier_not_allowed/i.test(String(e && e.message));
   let activeModel = model;
+  let activeText = textModel || null;
 
   async function ask(content, maxTokens) {
-    const candidates = [activeModel].concat((spec.alsoTry || []).filter((m) => m !== activeModel));
+    const hasImage = (content || []).some((b) => b && b.type === "image");
+    // Text-only calls take the text model when the provider has one; a call
+    // carrying an image must go to a model that can see.
+    const useText = !hasImage && activeText;
+    const first = useText ? activeText : activeModel;
+    const also = useText ? (spec.textAlsoTry || []) : (spec.alsoTry || []);
+    const candidates = [first].concat(also.filter((m) => m !== first));
     for (let i = 0; i < candidates.length; i++) {
       try {
         const text = await askWith(candidates[i], content, maxTokens);
-        if (candidates[i] !== activeModel) {
-          warn("  " + spec.label + ": model " + activeModel + " is gone; using " + candidates[i] + " from now on");
-          activeModel = candidates[i];
+        if (candidates[i] !== first) {
+          warn("  " + spec.label + ": model " + first + " is gone; using " + candidates[i] + " from now on");
+          if (useText) activeText = candidates[i]; else activeModel = candidates[i];
         }
         return text;
       } catch (e) {
@@ -215,6 +228,7 @@ function makeClient({ provider, key, model, timeoutMs, log }) {
   return {
     provider, label: spec.label,
     get model() { return activeModel; },
+    get textModel() { return activeText; },
     on: Boolean(key),
     ask, readDocument, parseJson,
   };
