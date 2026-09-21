@@ -66,7 +66,7 @@
           <div class="tablewrap"><table class="psmap">
             <thead><tr><th>Module</th><th>Asked for</th><th>Status</th><th>Where to see it</th></tr></thead>
             <tbody>
-              <tr><td>A</td><td>Adaptive questioning branching on the chief complaint</td><td class="yes">Built</td><td class="where">Kiosk → choose "cough" or "skin problem"; the follow-up block changes. Works in all seven languages.</td></tr>
+              <tr><td>A</td><td>Adaptive questioning branching on the chief complaint</td><td class="yes">Built</td><td class="where">Kiosk → choose any complaint: the model writes 4–5 follow-up questions for it (SOCRATES elements, tap-able options, in the patient's language with English beneath, "asked because you mentioned…"). Generated once per complaint and language, then shared; a hand-written block is the fallback. Works in all seven languages.</td></tr>
               <tr><td>A</td><td>Dual-mode input — every question by speaking or tapping</td><td class="yes">Built</td><td class="where">Mic on every open question; spoken "next / back / repeat" commands.</td></tr>
               <tr><td>A</td><td>AYUSH history mode — Dashavidha Pariksha, Agni, Koshtha, Ahara-Vihara</td><td class="yes">Built</td><td class="where">Choose Ayurvedic or Both at the system screen; all ten parameters, Vikriti kept apart from Prakriti.</td></tr>
               <tr><td>A</td><td>Red-flag detection with immediate alert to triage staff</td><td class="yes">Built</td><td class="where">Red button, or a red-flag answer: token turns P-, case tops the queue, a tone and banner on the console, one SMS to <code>TRIAGE_PHONE</code>.</td></tr>
@@ -110,9 +110,11 @@
           <h3>Real in this build</h3>
           <p>Three ways to identify — mobile, ABHA number, or Aadhaar with a real Verhoeff checksum · a personal login ID and
           password so a patient can return to their own dashboard of past visits, documents and summaries · adaptive
-          question flow with first-visit, follow-up, proxy and emergency branching, in all seven languages · voice input,
+          question flow with first-visit, follow-up, proxy and emergency branching, in all seven languages, and
+          complaint-specific follow-up questions written by the model for each complaint · voice input,
           spoken prompts for every screen and spoken navigation commands in every language, with a server voice for any
-          machine that has none of its own · audio-guided, large-text and high-contrast modes · a literacy-free body map ·
+          machine that has none of its own · audio-guided, large-text and high-contrast modes · a literacy-free body map, drawn again with the touched zone lit on the review screen, in the
+          patient's record and on the physician's console ·
           all ten Dashavidha Pariksha parameters with Vikriti separated from Prakriti, plus Agni, Koshtha and Ahara-Vihara ·
           document capture with AI extraction of diagnoses, medicines and lab values · a chronological document timeline ·
           AI clinical summary with assessment, differentials and suggested investigations, and a plain recap in the

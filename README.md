@@ -107,6 +107,10 @@ To see how the providers compare on real-looking documents: `node tools/ai-bench
 (Anthropic is also supported via `ANTHROPIC_API_KEY`, but it needs paid credit and is only
 used if you set that key.)
 
+With a key set, the complaint-specific block of the interview is written by the model for each
+complaint; `AI_QUESTIONS=off` keeps the hand-written questions. Before a demo, pre-generate every
+complaint in every language so nobody waits: `node tools/warm-questions.js https://your-site`.
+
 > Keep `.env` to yourself. Don't commit it, don't screenshot it, don't paste the key into a chat
 > window — including to me. It belongs in that file and nowhere else.
 

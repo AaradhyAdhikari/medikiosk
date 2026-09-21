@@ -105,7 +105,7 @@ function chain(clients, log) {
     return Promise.all(clients.map(async (c) => {
       const t0 = Date.now();
       try {
-        const text = await c.ask([{ type: "text", text: 'Reply with exactly this JSON and nothing else: {"ok":true}' }], 60);
+        const text = await c.ask([{ type: "text", text: 'You are a health check. Return a JSON object with one field, "ok", set to true.' }], 200);
         const ok = /"ok"\s*:\s*true/.test(text);
         return { provider: c.provider, model: c.model, ok, ms: Date.now() - t0, error: ok ? null : "unexpected reply: " + text.slice(0, 60) };
       } catch (e) {
