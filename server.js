@@ -2666,6 +2666,20 @@ async function api(req, res, pathname) {
     return ok(res, { firstRun: store.clinicians.length === 0, pending: store.clinicians.filter((c) => !c.approved).length });
   }
 
+  // ---- admin: approve a clinician by email, with the ADMIN_KEY from the
+  // environment. For the prototype operator, when no approved clinician is
+  // around to do it from the console. Unset key = route does not exist.
+  if (pathname === "/api/admin/approve" && method === "POST") {
+    const key = String(process.env.ADMIN_KEY || "");
+    if (!key || req.headers["x-admin-key"] !== key) return bad(res, 404, "No such endpoint.");
+    const { email } = await readBody(req);
+    const c = store.clinicians.find((x) => x.email === String(email || "").toLowerCase().trim());
+    if (!c) return bad(res, 404, "No such account.");
+    c.approved = true; save();
+    logEvent("clinician_approved", { clinicianId: c.id, by: "admin-key" });
+    return ok(res, { ok: true, clinician: publicClinician(c) });
+  }
+
   // ---- doctor: approve a pending colleague
   if (pathname === "/api/doctor/approve" && method === "POST") {
     const s = doctorOf(req);
