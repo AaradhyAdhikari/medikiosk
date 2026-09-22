@@ -2620,7 +2620,10 @@ async function api(req, res, pathname) {
     const customDept = String(department || "").trim();
     const deptId = known || GENERAL_SCOPE;
 
-    const first = store.clinicians.length === 0;
+    // Approved automatically when nobody approved exists yet — an empty store,
+    // or a store where every account is still waiting. Otherwise no one could
+    // ever get in to approve anyone.
+    const first = !store.clinicians.some((c) => c.approved);
     const clinician = {
       id: id(), email: mail, passwordHash: hashPassword(String(password)),
       name: String(name).trim(), hprId: String(hprId || "").trim() || null,
