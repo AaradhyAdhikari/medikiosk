@@ -123,6 +123,7 @@ p{margin:0}
 .stack .card .dots i{width:8px;height:8px;border-radius:50%;background:rgba(44,38,34,.25)}
 .stack .card .dots i.on{width:22px;border-radius:999px;background:var(--ink)}
 .stack .card svg{display:block}
+.stack .card .hmap{margin:-4px auto 0;overflow:hidden;border-radius:14px}
 @media (max-width:900px){
   .hero .wrap{grid-template-columns:1fr}
   .stack{height:420px;margin-top:8px}
