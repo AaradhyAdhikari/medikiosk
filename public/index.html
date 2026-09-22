@@ -70,8 +70,7 @@
       </div>
     </div>
 
-    <div class="stack rv d2" id="stack" aria-hidden="true">
-      <img id="hero-photo" src="/img/hero-doctor.jpg" alt="" onerror="this.remove()">
+    <div class="stack deck closed rv d2" id="stack" role="button" tabindex="0" aria-label="See the patient journey: language, body map, token slip and the AI summary">
       <div class="card c1" data-tilt="1.4">
         <div class="k">Step 1 · भाषा</div>
         <div class="h">अपनी भाषा चुनिए</div>
@@ -95,6 +94,17 @@
         <div class="sub">Kayachikitsa · Room 4 · ~12 min</div>
         <div class="chips" style="margin-top:12px"><div class="chip">Kamla Devi, 62 <span>QR ▣</span></div></div>
       </div>
+      <div class="card sum" data-tilt="1.1">
+        <span class="ai">AI summary</span>
+        <div class="who"><b>Kamla Devi, 62 · F</b><span>A-17 · first visit</span></div>
+        <div class="cc">Bilateral knee pain, 8 months</div>
+        <div class="ln"><em>History</em><div>Dull ache, worse mornings and on stairs; eases with rest. No trauma. <span class="src">said</span></div></div>
+        <div class="ln"><em>Past</em><div>Type 2 diabetes, hypertension · HbA1c 8.4% <span class="src doc">paper</span></div></div>
+        <div class="ln"><em>Medicines</em><div>Metformin 500 mg BD · Amlodipine 5 mg OD <span class="src doc">paper</span></div></div>
+        <div class="foot"><span class="code">ICD-10 M17.0</span><span class="code">NAMASTE SR11</span><span class="ok"><i>✓</i>Verified by Dr Rao</span></div>
+      </div>
+      <span class="tap"><i></i>Tap to see the journey</span>
+      <span class="hint2">Tap a card to look closer · tap the space to close</span>
     </div>
   </div>
 </section>
@@ -283,14 +293,31 @@
     }, 2600);
   }
 
-  /* the hero: blobs drift with the pointer, the card stack tilts toward it */
+  /* the hero: blobs drift with the pointer; the deck opens on a tap, a card
+     pops on a tap, the space closes it; the cards tilt while the deck is open */
   var hero = document.getElementById("hero"), stack = document.getElementById("stack");
+  var cards = stack.querySelectorAll(".card");
+  function unpop() { cards.forEach(function (c) { c.classList.remove("pop"); c.style.transform = ""; }); stack.classList.remove("focus"); }
+  function openDeck(open) { unpop(); stack.classList.toggle("open", open); stack.classList.toggle("closed", !open); }
+  stack.addEventListener("click", function (e) {
+    var card = e.target.closest(".card");
+    if (stack.classList.contains("closed")) return openDeck(true);
+    if (!card) return openDeck(false);
+    var was = card.classList.contains("pop");
+    unpop();
+    if (!was) { card.classList.add("pop"); stack.classList.add("focus"); }
+  });
+  stack.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDeck(stack.classList.contains("closed")); }
+    if (e.key === "Escape") openDeck(false);
+  });
   if (hero && !reduce && window.matchMedia("(pointer: fine)").matches) {
-    var blobs = hero.querySelectorAll(".blob"), cards = stack.querySelectorAll(".card");
+    var blobs = hero.querySelectorAll(".blob");
     hero.addEventListener("pointermove", function (e) {
       var r = hero.getBoundingClientRect();
       var dx = (e.clientX - r.left) / r.width - .5, dy = (e.clientY - r.top) / r.height - .5;
       blobs.forEach(function (b) { var k = Number(b.dataset.px) * 900; b.style.transform = "translate(" + (dx * k) + "px," + (dy * k) + "px)"; });
+      if (!stack.classList.contains("open") || stack.classList.contains("focus")) return;
       cards.forEach(function (c) {
         var t = Number(c.dataset.tilt || 1);
         c.style.transform = "translate(-50%,-50%) rotate(var(--r)) translate(var(--x),var(--y)) rotateX(" + (-dy * 10 * t) + "deg) rotateY(" + (dx * 12 * t) + "deg)";
@@ -298,7 +325,7 @@
     });
     hero.addEventListener("pointerleave", function () {
       blobs.forEach(function (b) { b.style.transform = ""; });
-      cards.forEach(function (c) { c.style.transform = ""; });
+      if (!stack.classList.contains("focus")) cards.forEach(function (c) { c.style.transform = ""; });
     });
   }
 
