@@ -88,7 +88,7 @@ p{margin:0}
 .hero .b1{width:520px;height:520px;left:-160px;top:-120px;background:var(--blush)}
 .hero .b2{width:560px;height:560px;right:-180px;bottom:-220px;background:var(--sage)}
 .hero .b3{width:320px;height:320px;left:44%;top:56%;background:var(--lilac);opacity:.7}
-.hero .wrap{position:relative;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:clamp(24px,4vw,56px);align-items:center}
+.hero .wrap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(24px,4vw,56px);align-items:center}
 .hero .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 14px 8px 10px;border-radius:var(--pill);background:var(--cream);border:1px solid var(--sand);font-size:13px;font-weight:600;margin-bottom:28px}
 .hero .badge i{width:8px;height:8px;border-radius:50%;background:var(--sage-deep);display:inline-block;box-shadow:0 0 0 0 rgba(95,138,114,.5);animation:ping 2.2s infinite}
 @keyframes ping{0%{box-shadow:0 0 0 0 rgba(95,138,114,.45)}70%{box-shadow:0 0 0 10px rgba(95,138,114,0)}100%{box-shadow:0 0 0 0 rgba(95,138,114,0)}}
@@ -106,7 +106,7 @@ p{margin:0}
    them out; a tap on a card brings it forward; the space closes the deck. */
 .stack{position:relative;height:min(560px,70vw);perspective:1200px;cursor:pointer;outline:none}
 .stack:focus-visible{box-shadow:0 0 0 3px var(--apricot);border-radius:32px}
-.stack .card{position:absolute;left:50%;top:50%;width:min(300px,64%);border-radius:28px;padding:22px;background:var(--cream);box-shadow:0 30px 60px -28px rgba(60,40,20,.45);
+.stack .card{position:absolute;left:56%;top:50%;width:min(270px,58%);border-radius:28px;padding:22px;background:var(--cream);box-shadow:0 30px 60px -28px rgba(60,40,20,.45);
   transform:translate(-50%,-50%) rotate(var(--r,0deg)) translate(var(--x,0),var(--y,0));transition:transform .7s var(--ease),opacity .4s,filter .4s;will-change:transform}
 .stack .card.c1{background:var(--blush)}
 .stack .card.c3{background:var(--sage)}
@@ -116,10 +116,10 @@ p{margin:0}
 .stack.closed .card.c3{--r:2.5deg;--x:6px;--y:6px}
 .stack.closed .card.sum{--r:0deg;--x:0px;--y:-4px;z-index:3}
 /* open: fanned, summary front and centre */
-.stack.open .card.c1{--r:-12deg;--x:-230px;--y:36px;z-index:1}
-.stack.open .card.c2{--r:-6deg;--x:-120px;--y:-10px;z-index:2}
-.stack.open .card.c3{--r:9deg;--x:170px;--y:30px;z-index:1}
-.stack.open .card.sum{--r:0deg;--x:20px;--y:-14px;z-index:3}
+.stack.open .card.c1{--r:-12deg;--x:-150px;--y:40px;z-index:1}
+.stack.open .card.c2{--r:-6deg;--x:-70px;--y:-14px;z-index:2}
+.stack.open .card.c3{--r:9deg;--x:150px;--y:34px;z-index:1}
+.stack.open .card.sum{--r:0deg;--x:40px;--y:-12px;z-index:3}
 /* one card popped: front, bigger; the rest step back */
 .stack.open.focus .card{opacity:.55;filter:saturate(.7)}
 .stack.open.focus .card.pop{opacity:1;filter:none;z-index:9;transform:translate(-50%,-50%) translate(0,-10px) scale(1.12)!important}
