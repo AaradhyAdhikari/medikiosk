@@ -58,7 +58,9 @@ p{margin:0}
 .top .wrap{display:flex;align-items:center;justify-content:space-between;height:72px;gap:16px}
 .top .left{display:flex;align-items:center;gap:28px}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--head);font-weight:800;font-size:20px;letter-spacing:-.02em}
-.brand img{width:30px;height:30px}
+.brand img.mark{width:34px;height:34px}
+.brand img.wordmark{height:24px;width:auto}
+footer .brand img.wordmark{filter:brightness(0) invert(1)}
 .navlinks{display:flex;gap:4px}
 .navlinks a{padding:9px 14px;border-radius:var(--pill);text-decoration:none;font-size:15px;font-weight:600;color:var(--ink-2);transition:background .2s,color .2s}
 .navlinks a:hover{background:var(--blush);color:var(--ink)}
@@ -72,7 +74,7 @@ p{margin:0}
 .menu-open .burger span::before{top:0;transform:rotate(45deg)}
 .menu-open .burger span::after{top:0;transform:rotate(-45deg)}
 @media (max-width:980px){.navlinks{display:none}.burger{display:grid}}
-@media (max-width:640px){.top .right .btn-line{display:none}.brand span{display:none}}
+@media (max-width:640px){.top .right .btn-line{display:none}.brand img.wordmark{display:none}}
 
 .drawer{position:fixed;inset:72px 0 0 0;z-index:39;background:var(--ground);padding:28px var(--gutter) 40px;
   transform:translateY(-8px);opacity:0;pointer-events:none;transition:opacity .25s var(--ease),transform .25s var(--ease);overflow:auto}

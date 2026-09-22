@@ -7,12 +7,12 @@
  *
  * Network first for the shell too, so a deploy reaches an open kiosk on its
  * next load; the cache is the fallback, not the source of truth. */
-const VERSION = "mk-shell-v4";
+const VERSION = "mk-shell-v5";
 const SHELL = [
   "/", "/index.html", "/kiosk", "/kiosk.html", "/about", "/about.html",
   "/styles.css", "/landing.css", "/kiosk.js", "/i18n.js", "/icons.js", "/qr.js", "/questions.js", "/bodymap.js",
   "/lang/mr.js", "/lang/gu.js", "/lang/pa.js", "/lang/ta.js", "/lang/te.js",
-  "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon.svg",
+  "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-64.png", "/icons/mark.png", "/icons/wordmark.png",
   "/img/body-front.png", "/img/body-back.png", "/img/body-front-f.png", "/img/body-back-f.png",
 ];
 
