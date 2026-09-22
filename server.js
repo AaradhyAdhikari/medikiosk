@@ -267,7 +267,11 @@ const SECRET = (() => {
      say so rather than letting it look like a mystery. */
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
   if (SERVERLESS) {
-    console.warn("  ! SESSION_SECRET is not set. Logins will not survive a cold start.");
+    /* Worse than a cold start: several instances run at once, each with its
+       own random secret, so a cookie signed by one is refused by the next —
+       a clinician signs in and is thrown out on the very next request. That
+       is not "working badly", it is not working. Say exactly what to set. */
+    console.error("  ✗ SESSION_SECRET is not set. On a serverless host every instance would sign cookies differently and sign-ins would fail at random. Set SESSION_SECRET (any long random string) in the environment and redeploy.");
   }
   const f = path.join(DATA, "secret");
   fs.mkdirSync(DATA, { recursive: true });
