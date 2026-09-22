@@ -2698,7 +2698,14 @@ async function api(req, res, pathname) {
     const c = store.clinicians.find((x) => x.email === String(email || "").toLowerCase().trim());
     if (!c || !verifyPassword(String(password || ""), c.passwordHash)) return bad(res, 401, "Those details are not right.");
     if (c.approved === false) {
-      return bad(res, 403, "This account is waiting for approval by a registered clinician.");
+      // Nobody approved at all means nobody could ever approve anyone: the
+      // first to sign in with a valid password becomes the approver.
+      if (!store.clinicians.some((x) => x.approved)) {
+        c.approved = true; save();
+        logEvent("clinician_approved", { clinicianId: c.id, by: "bootstrap" });
+      } else {
+        return bad(res, 403, "This account is waiting for approval by a registered clinician.");
+      }
     }
     setCookie(res, "mk_doctor", sign({ cid: c.id, exp: Date.now() + 12 * 3600 * 1000 }));
     logEvent("clinician_login", { clinicianId: c.id });
