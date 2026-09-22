@@ -305,6 +305,20 @@
     unpop();
     if (!was) { card.classList.add("pop"); stack.classList.add("focus"); }
   });
+  /* scrolling gathers the deck and fans it out again a beat later — a small
+     replay each time the page moves a good distance while the hero is on screen */
+  if (!reduce) {
+    var heroSeen = true, lastY = window.scrollY, busy = false;
+    if ("IntersectionObserver" in window) new IntersectionObserver(function (en) { heroSeen = en[0].isIntersecting; }, { threshold: 0.2 }).observe(stack);
+    window.addEventListener("scroll", function () {
+      if (busy || !heroSeen || stack.classList.contains("focus")) return;
+      if (Math.abs(window.scrollY - lastY) < 140) return;
+      lastY = window.scrollY; busy = true;
+      openDeck(false);
+      setTimeout(function () { openDeck(true); }, 380);
+      setTimeout(function () { busy = false; }, 1400);
+    }, { passive: true });
+  }
   stack.addEventListener("keydown", function (e) {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDeck(stack.classList.contains("closed")); }
     if (e.key === "Escape") openDeck(false);
