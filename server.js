@@ -729,11 +729,107 @@ const TTS_DIR = path.join(DATA, "tts");
 const ttsMem = new Map();                          // hash -> Buffer, bounded below
 const TTS_MEM_MAX = 300;
 
+/* Bhashini (the Government of India's language platform) is tried first when
+   BHASHINI_API_KEY is set: native Indian voices, an official service, and the
+   one an SIH panel expects to see. It needs the INFERENCE key from
+   dashboard.bhashini.co.in — the one sent as the Authorization header — not
+   the Udyat key. Any Bhashini failure falls through to the keyless service
+   below, so a bad key or an outage costs quality, never silence. */
+const BHASHINI_KEY = String(process.env.BHASHINI_API_KEY || "").trim();
+const BHASHINI_URL = String(process.env.BHASHINI_INFERENCE_URL ||
+  "https://dhruva-api.bhashini.gov.in/services/inference/pipeline").trim();
+const BHASHINI_TTS_SERVICE = {
+  hi: "ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4",
+  mr: "ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4",
+  gu: "ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4",
+  pa: "ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4",
+  ta: "ai4bharat/indic-tts-coqui-dravidian-gpu--t4",
+  te: "ai4bharat/indic-tts-coqui-dravidian-gpu--t4",
+  en: "ai4bharat/indic-tts-coqui-misc-gpu--t4",
+};
+const TTS_PROVIDER_NAME = BHASHINI_KEY ? "bhashini" : "google";
+let bhashiniLastError = null;                      // shown in /api/config, never the key
+
+async function bhashiniTts(lang, text) {
+  const pieces = [];
+  // splitForSpeech cuts at every sentence; pack short sentences back together
+  // so a whole screen is one or two calls, not one per sentence.
+  const packed = [];
+  for (const s of splitForSpeech(text, 400)) {
+    const last = packed.length - 1;
+    if (last >= 0 && packed[last].length + 1 + s.length <= 400) packed[last] += " " + s;
+    else packed.push(s);
+  }
+  for (const piece of packed) {
+    const r = await fetch(BHASHINI_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(15000),
+      headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: BHASHINI_KEY },
+      body: JSON.stringify({
+        pipelineTasks: [{
+          taskType: "tts",
+          config: { language: { sourceLanguage: lang }, serviceId: BHASHINI_TTS_SERVICE[lang], gender: "female" },
+        }],
+        inputData: { input: [{ source: piece }] },
+      }),
+    });
+    if (!r.ok) throw new Error("bhashini " + r.status + " " + (await r.text().catch(() => "")).slice(0, 160));
+    const j = await r.json();
+    const b64 = j && j.pipelineResponse && j.pipelineResponse[0] &&
+      j.pipelineResponse[0].audio && j.pipelineResponse[0].audio[0] && j.pipelineResponse[0].audio[0].audioContent;
+    if (!b64) throw new Error("bhashini returned no audio");
+    pieces.push(Buffer.from(b64, "base64"));
+  }
+  return joinWavs(pieces);
+}
+
+/* Bhashini answers in WAV. Unlike MP3 frames, WAV files do not simply
+   concatenate — each carries a header with its length. Keep the first
+   header's format, join the sample data, and rewrite the two lengths. */
+function wavData(buf) {
+  if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error("bhashini audio is not WAV");
+  }
+  let off = 12, fmt = null;
+  while (off + 8 <= buf.length) {
+    const id = buf.toString("ascii", off, off + 4), size = buf.readUInt32LE(off + 4);
+    if (id === "fmt ") fmt = buf.subarray(off, off + 8 + size);
+    if (id === "data") return { fmt, data: buf.subarray(off + 8, Math.min(buf.length, off + 8 + size)) };
+    off += 8 + size + (size & 1);
+  }
+  throw new Error("bhashini WAV has no data");
+}
+function joinWavs(bufs) {
+  if (bufs.length === 1) return bufs[0];
+  const parts = bufs.map(wavData);
+  const fmt = parts[0].fmt, data = Buffer.concat(parts.map((p) => p.data));
+  const head = Buffer.alloc(12);
+  head.write("RIFF", 0, "ascii"); head.writeUInt32LE(4 + fmt.length + 8 + data.length, 4); head.write("WAVE", 8, "ascii");
+  const dh = Buffer.alloc(8); dh.write("data", 0, "ascii"); dh.writeUInt32LE(data.length, 4);
+  return Buffer.concat([head, fmt, dh, data]);
+}
+
+// Returns { audio, type, provider }.
 async function ttsAudio(lang, text) {
   const key = crypto.createHash("sha1").update(lang + "\n" + text).digest("hex");
   if (ttsMem.has(key)) return ttsMem.get(key);
+  for (const [ext, type, provider] of [["wav", "audio/wav", "bhashini"], ["mp3", "audio/mpeg", "google"]]) {
+    const f = path.join(TTS_DIR, key + "." + ext);
+    try { if (fs.existsSync(f)) return remember(key, { audio: fs.readFileSync(f), type, provider }); } catch { }
+  }
+
+  if (BHASHINI_KEY && BHASHINI_TTS_SERVICE[lang]) {
+    try {
+      const audio = await bhashiniTts(lang, text);
+      bhashiniLastError = null;
+      try { fs.mkdirSync(TTS_DIR, { recursive: true }); fs.writeFileSync(path.join(TTS_DIR, key + ".wav"), audio); } catch { }
+      return remember(key, { audio, type: "audio/wav", provider: "bhashini" });
+    } catch (e) {
+      bhashiniLastError = String(e.message).slice(0, 200);
+      console.warn("  bhashini tts failed (" + lang + "), using fallback:", bhashiniLastError);
+    }
+  }
   const file = path.join(TTS_DIR, key + ".mp3");
-  try { if (fs.existsSync(file)) return remember(key, fs.readFileSync(file)); } catch { }
 
   // The service takes ~200 characters a call. Split on sentence ends, then
   // on commas, so the pauses fall where a reader would pause anyway. MP3
@@ -756,7 +852,7 @@ async function ttsAudio(lang, text) {
   }
   const audio = Buffer.concat(parts);
   try { fs.mkdirSync(TTS_DIR, { recursive: true }); fs.writeFileSync(file, audio); } catch { /* read-only host: memory only */ }
-  return remember(key, audio);
+  return remember(key, { audio, type: "audio/mpeg", provider: "google" });
 }
 
 function remember(key, buf) {
@@ -1825,6 +1921,10 @@ async function api(req, res, pathname) {
       // or a browser tab, why a scan came back unread.
       aiProvider: aiOn() ? AI_PROVIDER : null, aiModel: aiOn() ? AI_MODEL : null,
       tts: TTS_ON,
+      // Which voice service is configured, and Bhashini's last error if it
+      // failed — enough to check the key works without ever showing it.
+      ttsProvider: TTS_ON ? TTS_PROVIDER_NAME : null,
+      bhashiniError: BHASHINI_KEY ? bhashiniLastError : null,
       aiQuestions: AI_QUESTIONS_ON(),
       // Which gateway carries codes and alerts. "console" means they print
       // in the server log and show on screen.
@@ -1868,9 +1968,9 @@ async function api(req, res, pathname) {
     if (!TTS_LANGS[lang]) return bad(res, 400, "Unsupported language.");
     if (!text) return bad(res, 400, "q is required.");
     try {
-      const audio = await ttsAudio(lang, text);
+      const t = await ttsAudio(lang, text);
       // The same prompt is said to every patient; let the browser keep it.
-      return send(res, 200, audio, { "content-type": "audio/mpeg", "cache-control": "public, max-age=604800" });
+      return send(res, 200, t.audio, { "content-type": t.type, "x-tts-provider": t.provider, "cache-control": "public, max-age=604800" });
     } catch (e) {
       console.warn("  tts failed (" + lang + "):", String(e.message).slice(0, 120));
       return bad(res, 502, "Speech is not available right now.");
@@ -3146,6 +3246,7 @@ async function api(req, res, pathname) {
     console.log(`\n   AI:        ${aiOn() ? "on · " + AI.chain.join("  →  ") : "off — set GROQ_API_KEY, MISTRAL_API_KEY or ANTHROPIC_API_KEY in .env"}`);
     console.log(`   SMS:       ${smsProvider() === "console" ? "console (codes print here)" : smsProvider()}`);
     console.log(`   Email:     ${emailProvider() === "console" ? "console (messages print here)" : emailProvider() + " as " + EMAIL_FROM}`);
+    console.log(`   Voice:     ${!TTS_ON ? "off" : BHASHINI_KEY ? "Bhashini (fallback: Google)" : "Google — set BHASHINI_API_KEY for Bhashini voices"}`);
     console.log(`   Languages: ${routed.langs + 2} translated · ${routed.added} routing keywords derived`);
     console.log("   Data:      ./data/db.json   (delete the data folder to start over)");
     console.log(`\n  ${line}`);
