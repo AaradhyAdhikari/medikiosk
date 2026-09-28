@@ -54,7 +54,7 @@ async function api(url, bodyObj, method) {
   if (!r.ok) throw new Error(j.error || "Request failed");
   return j;
 }
-function shell(inner) { stage.innerHTML = '<div class="doc"><div class="dcard">' + inner + "</div></div>"; }
+function shell(inner) { if (READ.on && D.view !== "case") stopReading(); stage.innerHTML = '<div class="doc"><div class="dcard">' + inner + "</div></div>"; }
 
 /* ── document timeline ──────────────────────────────
    Documents arrive from the server ordered by the date printed on them, so a
@@ -584,6 +584,7 @@ function renderQueue() {
 /* ── one case ───────────────────────────────────────── */
 
 async function openVisit(id) {
+  if (READ.on) stopReading();
   D.from = D.view === "home" ? "home" : "queue";
   D.view = "case";
   D.amending = false;
@@ -729,6 +730,101 @@ function routingPanel(v) {
     "</div>";
 }
 
+/* ── summary read aloud ─────────────────────────────────
+   One tap and the case is spoken: who, what is flagged, the history in
+   brief, then the AI's considerations — so a clinician can take it in while
+   walking to the room or washing their hands. Emergencies are read first.
+
+   Uses the browser's own voices and PREFERS ON-DEVICE ones. Unlike the
+   kiosk's prompts, this text is patient data; a local voice keeps it on
+   this machine. Patient words quoted in Indian scripts are dropped from the
+   spoken version (an English voice would mangle them) — they stay on screen. */
+var READ = { on: false, rate: 1, visitId: null };
+var READ_OK = "speechSynthesis" in window && typeof SpeechSynthesisUtterance === "function";
+
+function readVoice() {
+  var vs = [];
+  try { vs = window.speechSynthesis.getVoices() || []; } catch (e) { return null; }
+  var en = vs.filter(function (v) { return /^en/i.test(v.lang); });
+  function pick(list) {
+    return list.filter(function (v) { return /en[-_]IN/i.test(v.lang); })[0] || list[0] || null;
+  }
+  return pick(en.filter(function (v) { return v.localService; })) || pick(en);
+}
+
+function speakable(t) {
+  return String(t || "")
+    .replace(/[\u0900-\u0DFF]+(?:[\s,.;:!?'"\u2018\u2019\u201C\u201D-]+[\u0900-\u0DFF]+)*/g, "")
+    .replace(/[\u201C\u201D"\u2018\u2019']\s*[\u201C\u201D"\u2018\u2019']/g, "")
+    .replace(/\(\s*\)|\[\s*\]/g, "")
+    .replace(/\(([^()]*)\)/g, ", $1,")                     // brackets read as a pause
+    .replace(/^\s*,\s*/, "").replace(/,\s*([,.;:!?])/g, "$1").replace(/,\s*,/g, ",")
+    .replace(/\s+([,.;:])/g, "$1").replace(/\s{2,}/g, " ").trim();
+}
+
+function summaryScript(v) {
+  var s = v.summary || {}, a = s.ayurveda || {}, p = v.patient || {}, out = [];
+  var sex = p.sex === "F" ? "female" : p.sex === "M" ? "male" : "";
+  out.push("Token " + String(v.token || "").replace(/-/g, " ") + ". " +
+    [p.name || "Patient", p.ageYears ? p.ageYears + " years" : "", sex].filter(Boolean).join(", ") + ". " +
+    (v.visitType === "FOLLOW_UP" ? "Follow-up visit." : "First visit.") +
+    (v.language && v.language !== "en" && LANG_NAMES_D[v.language] ? " Answered in " + LANG_NAMES_D[v.language] + "." : ""));
+  if (s.redFlags && s.redFlags.length) out.push("Emergency flagged at intake: " + s.redFlags.join(". ") + ".");
+  if (s.narrative) out.push(s.narrative);
+  else {
+    if (s.chiefComplaint) out.push("Chief complaint: " + s.chiefComplaint);
+    if (s.hpi) out.push(s.hpi);
+  }
+  if (s.changeSinceLastVisit) out.push("Since the last visit: " + s.changeSinceLastVisit);
+  if (s.medications) out.push("Medications: " + s.medications);
+  if (s.allergies) out.push("Allergies: " + s.allergies);
+  if (s.interactions && s.interactions.length) out.push(s.interactions.length === 1
+    ? "One possible drug interaction is flagged on screen." : s.interactions.length + " possible drug interactions are flagged on screen.");
+  if (s.assessment) out.push("A I assessment, for your consideration: " + s.assessment);
+  if (s.differentials && s.differentials.length)
+    out.push("Worth ruling in or out: " + s.differentials.map(function (x) { return x.condition; }).filter(Boolean).join(", ") + ".");
+  if (s.investigations && s.investigations.length) out.push("Tests to consider: " + s.investigations.join(", ") + ".");
+  if (sysOf(v) !== "ALLOPATHIC" && a.prakriti)
+    out.push("Prakriti indicators: vata " + a.prakriti.vata + ", pitta " + a.prakriti.pitta + ", kapha " + a.prakriti.kapha + " percent.");
+  out.push("End of summary. This is drawn from the kiosk interview only; no examination has been done.");
+  return out.map(speakable).filter(Boolean).map(function (x) { return /[.!?]$/.test(x) ? x : x + "."; }).join(" ");
+}
+
+function stopReading() {
+  READ.on = false; READ.visitId = null;
+  try { if (READ_OK) window.speechSynthesis.cancel(); } catch (e) {}
+  paintReadBtn();
+}
+
+function startReading(v) {
+  stopReading();
+  var voice = readVoice();
+  // One utterance per sentence: Chrome silently stops a single long one
+  // after about fifteen seconds.
+  var parts = summaryScript(v).split(/(?<=[.!?])\s+/).filter(Boolean);
+  READ.on = true; READ.visitId = v.id;
+  parts.forEach(function (t, i) {
+    var u = new SpeechSynthesisUtterance(t);
+    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = "en-IN";
+    u.rate = READ.rate;
+    if (i === parts.length - 1) u.onend = u.onerror = function () { if (READ.visitId === v.id) { READ.on = false; READ.visitId = null; paintReadBtn(); } };
+    window.speechSynthesis.speak(u);
+  });
+  paintReadBtn();
+}
+
+function paintReadBtn() {
+  var b = document.getElementById("readsum");
+  if (b) b.innerHTML = ICON("speaker", 17) + (READ.on ? " Stop reading" : " Listen to summary");
+  if (b) b.classList.toggle("on", READ.on);
+  var r = document.getElementById("readrate");
+  if (r) r.textContent = READ.rate + "\u00d7";
+}
+
+if (READ_OK && typeof window.speechSynthesis.addEventListener === "function") {
+  window.speechSynthesis.addEventListener("voiceschanged", function () {});   // loads the voice list early
+}
+
 function renderCase() {
   var v = D.visit, s = v.summary || {}, a = s.ayurveda || {};
   var pk = a.prakriti || { vata: 33, pitta: 33, kapha: 34 };
@@ -755,6 +851,10 @@ function renderCase() {
           : v.status === "IN_CONSULT"
           ? '<span class="badge haldi" style="padding:10px 15px">In consultation now</span><button class="btn ghost" id="assessed">Mark as assessed</button>'
           : '<button class="btn" id="callin">Call patient in</button>') +
+        (READ_OK
+          ? '<button class="btn ghost readbtn" id="readsum" title="Read the summary aloud">' + ICON("speaker", 17) + " Listen to summary</button>" +
+            '<button class="btn ghost readrate" id="readrate" title="Reading speed">' + READ.rate + "\u00d7</button>"
+          : "") +
         '<span style="flex:1"></span><span style="font-size:13px;color:var(--muted)">' +
         docs.length + " document(s)" + (s.triage ? " · triage: " + esc(String(s.triage).toLowerCase()) : "") + "</span>" +
       "</div>" +
@@ -948,6 +1048,15 @@ function renderCase() {
       "</div></div></div>"
   );
 
+  var rs = document.getElementById("readsum");
+  if (rs) rs.onclick = function () { if (READ.on) stopReading(); else startReading(D.visit); };
+  var rr = document.getElementById("readrate");
+  if (rr) rr.onclick = function () {
+    READ.rate = READ.rate === 1 ? 1.25 : READ.rate === 1.25 ? 1.5 : 1;
+    if (READ.on) startReading(D.visit); else paintReadBtn();
+  };
+  if (READ.on && READ.visitId !== D.visit.id) stopReading();
+  paintReadBtn();
   document.getElementById("bk").onclick = function () { if (D.from === "home") startHome(); else { D.view = "queue"; renderQueue(); loadQueue(); } };
   var callin = document.getElementById("callin");
   if (callin) callin.onclick = function () { patchVisit({ status: "IN_CONSULT" }); };

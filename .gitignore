@@ -31,3 +31,6 @@ push-log.txt
 
 # benchmark output (tools/ai-bench.js)
 tools/bench-samples/last-run.json
+add-demo-doctor.bat
+add-demo-clinician.log
+data/db.json.bak-*

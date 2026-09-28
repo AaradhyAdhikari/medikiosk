@@ -787,3 +787,7 @@ html.a11y-contrast .bodyfig2 .pin{border:2px solid #000}
 .panel.bodypanel{margin-bottom:16px}
 /* "Asked because you mentioned…" on a model-written question. */
 .lede.aibecause{font-size:14px;color:var(--jade);margin-top:-4px;display:flex;align-items:center;gap:6px}
+/* summary read aloud (doctor console) */
+.actionbar .readbtn{display:inline-flex;align-items:center;gap:7px}
+.actionbar .readbtn.on{background:var(--jade);color:#fff;border-color:var(--jade)}
+.actionbar .readrate{padding:11px 13px;font-variant-numeric:tabular-nums;min-width:58px}
