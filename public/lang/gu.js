@@ -666,4 +666,7 @@ window.TR.gu = {
   "No chemist was found nearby.": "નજીકમાં કોઈ દવાની દુકાન મળી નહીં.",
   "Jan Aushadhi Kendra": "જન ઔષધિ કેન્દ્ર",
   "Chemist": "દવાની દુકાન",
+  // ── voice on/off ──
+  "Turn the voice on": "અવાજ ચાલુ કરો",
+  "Turn the voice off": "અવાજ બંધ કરો",
 };

@@ -666,4 +666,7 @@ window.TR.te = {
   "No chemist was found nearby.": "దగ్గరలో మందుల షాపు దొరకలేదు.",
   "Jan Aushadhi Kendra": "జన్ ఔషధి కేంద్రం",
   "Chemist": "మందుల షాపు",
+  // ── voice on/off ──
+  "Turn the voice on": "వాయిస్ ఆన్ చేయండి",
+  "Turn the voice off": "వాయిస్ ఆఫ్ చేయండి",
 };

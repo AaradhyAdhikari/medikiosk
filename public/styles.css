@@ -916,3 +916,4 @@ small.src svg,.rxsafe svg{display:inline-block;vertical-align:-2px}
 .buybtn:hover{border-color:var(--jade);color:#14604D}
 .buyrx{flex-basis:100%;color:#7A4A1C;font-size:12.5px}
 .jan{margin-top:10px;background:var(--sage-soft);border-radius:12px;padding:10px 12px;font-size:14.5px;line-height:1.5}
+.kbar #btn-mute.on{background:var(--vermilion-soft);color:#A33A2B}

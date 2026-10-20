@@ -666,4 +666,7 @@ window.TR.pa = {
   "No chemist was found nearby.": "ਨੇੜੇ ਕੋਈ ਦਵਾਈਆਂ ਦੀ ਦੁਕਾਨ ਨਹੀਂ ਮਿਲੀ।",
   "Jan Aushadhi Kendra": "ਜਨ ਔਸ਼ਧੀ ਕੇਂਦਰ",
   "Chemist": "ਦਵਾਈਆਂ ਦੀ ਦੁਕਾਨ",
+  // ── voice on/off ──
+  "Turn the voice on": "ਆਵਾਜ਼ ਚਾਲੂ ਕਰੋ",
+  "Turn the voice off": "ਆਵਾਜ਼ ਬੰਦ ਕਰੋ",
 };

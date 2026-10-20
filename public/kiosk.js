@@ -216,8 +216,35 @@ function hush() {
   if (ttsAudio) { try { ttsAudio.pause(); } catch (e) {} ttsAudio = null; }
 }
 
-function speak(text) {
+/* Voice off. Some patients do not want every screen read to them. With the
+   voice off nothing is spoken on its own — no screen read-outs, no prompts —
+   and what is playing stops at once. Reading still happens when they ask
+   for it (the read-aloud button, "Listen"), because that is them asking.
+   Remembered on this device until switched back on. */
+var MUTED = false;
+try { MUTED = localStorage.getItem("mk_muted") === "1"; } catch (e) {}
+function setMuted(on) {
+  MUTED = !!on;
+  try { localStorage.setItem("mk_muted", MUTED ? "1" : "0"); } catch (e) {}
+  if (MUTED) hush();
+  paintMute();
+}
+function paintMute() {
+  var b = document.getElementById("btn-mute");
+  if (!b) return;
+  b.classList.toggle("on", MUTED);
+  var t = MUTED ? L("आवाज़ चालू करें", "Turn the voice on") : L("आवाज़ बंद करें", "Turn the voice off");
+  b.title = t; b.setAttribute("aria-label", t); b.setAttribute("aria-pressed", MUTED ? "true" : "false");
+  b.innerHTML = MUTED
+    ? '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18.3 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
+}
+function isSpeaking() { return !!ttsAudio || (VOICE_OUT && window.speechSynthesis.speaking); }
+
+// force: the patient asked for this reading (a button), so voice-off does not apply.
+function speak(text, force) {
   if (!text) return;
+  if (MUTED && !force) return;
   hush();
   var voice = VOICE_OUT ? ttsVoiceFor(S.lang) : null;
   /* An exact local voice — hi-IN for Hindi — wins. A merely same-language
@@ -445,7 +472,7 @@ function shrink(file, cb) {
    counter, and not anything the patient themselves entered — their spoken
    answer, their typed words, the summary built from them — since the server
    voice sends what it reads to an outside service and that promise holds. */
-var SPEAK_SKIP = ".q-en, .eyebrow, .rail, .steps, .glyph, .transcript, .field, .summary-sec, .dsec, .dline, .dstat, " +
+var SPEAK_SKIP = ".aibecause, .q-en, .eyebrow, .rail, .steps, .glyph, .transcript, .field, .summary-sec, .dsec, .dline, .dstat, " +
   ".thumbdate, .thumbnote, .docthumb b, [aria-hidden=true], svg, script, style";
 var SPEAK_PICK = "h1, h2, h3, p, .notice, .chip, .faces button, .flabel, label, .consent-card";
 function spokenText(el) {
@@ -474,14 +501,19 @@ function screenText() {
   return out.join(" ");
 }
 
+// Tap to read the screen; tap again while it is reading to stop.
 document.getElementById("btn-speak").onclick = function () {
-  speak(screenText());
+  if (isSpeaking()) { hush(); return; }
+  speak(screenText(), true);
 };
+document.getElementById("btn-mute").onclick = function () { setMuted(!MUTED); };
+paintMute();
 document.getElementById("btn-lang").onclick = function () {
   // The pill toggles between the language chosen at the start and English —
   // the two a patient is most likely to want to flip between mid-interview.
   S.lang = S.lang === "en" ? (S.langChosen || "hi") : "en";
   setLangPill();
+  paintMute();
   render();
 };
 /* The emergency button, reachable from every screen — the language chooser,
@@ -1746,7 +1778,7 @@ function scQuestion() {
   };
 
   function runCommand(cmd) {
-    if (cmd === "repeat") return speak(screenText());
+    if (cmd === "repeat") return speak(screenText(), true);
     if (cmd === "help") return document.getElementById("btn-help").click();
     if (cmd === "back") return S.step === 0 ? go("system") : (S.step--, go("q"));
     if (cmd === "skip") return S.step + 1 >= qs.length ? go("docs") : (S.step++, go("q"));
@@ -2039,7 +2071,7 @@ function scReview() {
     // Tapping while it is being read stops it; the button says which.
     if (ttsAudio || (VOICE_OUT && window.speechSynthesis.speaking)) { hush(); listen.classList.remove("on"); return; }
     listen.classList.add("on");
-    speak(recap);
+    speak(recap, true);
   };
   speak(L("कृपया जाँच लीजिए कि यह सही है। अपनी भाषा में सुनने के लिए 'सुनिए' दबाइए।",
     "Please check that this is correct. Tap 'Listen' to hear it in your language."));
@@ -2294,7 +2326,8 @@ function paintReport() {
   var chem = document.getElementById("rchem");
   if (chem) chem.onclick = function () { S.nearEmergency = false; S.nearPharmacy = true; S.near = null; go("nearby"); };
   document.getElementById("rspk").onclick = function () {
-    speak([d.urgencyText, d.summary].concat(d.conditions.map(function (c) { return repLikely(c.likelihood) + ": " + c.name; })).filter(Boolean).join(". "));
+    if (isSpeaking()) { hush(); return; }
+    speak([d.urgencyText, d.summary].concat(d.conditions.map(function (c) { return repLikely(c.likelihood) + ": " + c.name; })).filter(Boolean).join(". "), true);
   };
   document.getElementById("rback").onclick = function () { go("done"); };
 }

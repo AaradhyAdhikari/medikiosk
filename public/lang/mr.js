@@ -662,4 +662,7 @@ window.TR.mr = {
   "No chemist was found nearby.": "जवळ कोणतेही औषध दुकान सापडले नाही.",
   "Jan Aushadhi Kendra": "जन औषधी केंद्र",
   "Chemist": "औषध दुकान",
+  // ── voice on/off ──
+  "Turn the voice on": "आवाज सुरू करा",
+  "Turn the voice off": "आवाज बंद करा",
 };

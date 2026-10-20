@@ -666,4 +666,7 @@ window.TR.ta = {
   "No chemist was found nearby.": "அருகில் மருந்துக் கடை எதுவும் கிடைக்கவில்லை.",
   "Jan Aushadhi Kendra": "ஜன் ஔஷதி கேந்திரா",
   "Chemist": "மருந்துக் கடை",
+  // ── voice on/off ──
+  "Turn the voice on": "குரலை இயக்கு",
+  "Turn the voice off": "குரலை நிறுத்து",
 };
