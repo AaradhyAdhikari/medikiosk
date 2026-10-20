@@ -67,6 +67,24 @@ const AGENTS = {
   methotrexate:  { cls: "methotrexate", names: ["methotrexate", "folitrax", "mtx"] },
   iron_calcium:  { cls: "mineral", names: ["ferrous", "iron", "calcium", "shelcal", "calcium carbonate", "ccm", "orofer",
                                            "livogen", "autrin"] },
+  // antibiotics that matter for allergy, not (here) for interactions
+  penicillin:    { cls: "penicillin", names: ["amoxicillin", "amoxycillin", "amoxyclav", "augmentin", "moxikind", "mox ",
+                                              "ampicillin", "cloxacillin", "penicillin", "piperacillin", "clavam"] },
+  cephalosporin: { cls: "cephalosporin", names: ["cefixime", "taxim", "ceftriaxone", "monocef", "cefuroxime", "ceftum",
+                                                 "cephalexin", "cefalexin", "cefpodoxime", "cefadroxil", "cefoperazone"] },
+  sulfonamide:   { cls: "sulfonamide", names: ["cotrimoxazole", "co-trimoxazole", "septran", "bactrim", "sulfamethoxazole"] },
+  azithromycin:  { cls: "macrolide_azithro", names: ["azithromycin", "azithral", "azee", "azax"] },
+  // common OPD medicines with no rule here — listed so they read as
+  // "recognised, nothing flagged" rather than "not checked at all"
+  antihistamine: { cls: "antihistamine", names: ["cetirizine", "levocetirizine", "levocet", "fexofenadine", "allegra",
+                                                 "chlorpheniramine", "avil", "loratadine"] },
+  montelukast:   { cls: "leukotriene", names: ["montelukast", "montair", "romilast"] },
+  salbutamol:    { cls: "bronchodilator", names: ["salbutamol", "asthalin", "levosalbutamol", "budesonide", "formoterol", "foracort"] },
+  antiemetic:    { cls: "antiemetic", names: ["ondansetron", "emeset", "vomikind", "domperidone", "domstal"] },
+  vitamin:       { cls: "vitamin", names: ["vitamin d", "cholecalciferol", "uprise", "calcirol", "b12", "methylcobalamin",
+                                           "mecobalamin", "folic acid", "multivitamin", "becosules"] },
+  ors:           { cls: "ors", names: ["ors", "electral", "oral rehydration"] },
+  antacid:       { cls: "antacid", names: ["antacid", "gelusil", "digene", "mucaine", "eno ", "magnesium hydroxide", "aluminium hydroxide"] },
   paracetamol:   { cls: "paracetamol", names: ["paracetamol", "acetaminophen", "dolo", "crocin", "calpol", "pcm"] },
 
   // ── Ayurvedic / herbal agents with documented pharmacological effects ──
@@ -220,4 +238,148 @@ function checkInteractions(sources) {
   return out;
 }
 
-module.exports = { checkInteractions, findAgents, AGENTS, RULES };
+// ── prescription safety ─────────────────────────────────────────────
+/* Beyond pairs of drugs: is the patient allergic to something on the
+   prescription, is the same thing prescribed twice, and does anything sit
+   badly with a condition on record. Same spirit as the pairs above: a short
+   list of textbook cautions, worded as "check this", with the source of each
+   fact shown so the physician can judge how far to trust it. It also says
+   plainly which lines it could not recognise — silence about a drug the
+   checker does not know must never read as "safe". */
+
+const NONE_RE = /^\s*(no|nil|none|nkda|nkda\.?|not known|no known( drug)? allergies?|nothing)\b/i;
+
+// Allergy words → what they rule out. Class-level, because a patient says
+// "penicillin" and the prescription says "Augmentin".
+const ALLERGY_TERMS = [
+  { re: /penicillin|amoxi|augmentin|ampicillin|clavam/i, cls: "penicillin", label: "penicillin" },
+  { re: /sul(f|ph)a|sulfonamide|septran|bactrim|cotrimoxazole/i, cls: "sulfonamide", label: "sulfa drugs" },
+  { re: /cephalosporin|\bcef/i, cls: "cephalosporin", label: "cephalosporins" },
+  { re: /nsaid|pain ?killer|ibuprofen|diclofenac|brufen|voveran/i, cls: "nsaid", label: "NSAIDs" },
+  { re: /aspirin|ecosprin|disprin/i, id: "aspirin", label: "aspirin" },
+  { re: /quinolone|ciprofloxacin|ofloxacin|levofloxacin/i, cls: "chelated_abx", label: "quinolones" },
+];
+// Cross-reactions worth a mention, weaker than a direct match.
+const CROSS = [
+  { allergy: "penicillin", cls: "cephalosporin", sev: "low",
+    note: "Penicillin allergy with a cephalosporin — cross-reactivity is low (about 1–2%) but real for a history of anaphylaxis." },
+  { allergy: "aspirin", cls: "nsaid", sev: "moderate",
+    note: "Aspirin sensitivity with an NSAID — cross-sensitivity is common, especially with asthma or nasal polyps." },
+  { allergy: "nsaid", id: "aspirin", sev: "moderate",
+    note: "NSAID allergy with aspirin — cross-sensitivity is common." },
+];
+
+// Same thing twice. Same agent always counts; these classes count across agents.
+const DUP_CLASSES = { anticoagulant: 1, nsaid: 1, raas: 1, ppi: 1, statin: 1, sedative: 1, ssri: 1, penicillin: 1, cephalosporin: 1 };
+
+// Drug (or class) against a condition on record.
+const CONTRA = [
+  { drug: "cls:nsaid", cond: /\b(ckd|kidney|renal)\b/i, condLabel: "kidney disease", sev: "high",
+    note: "NSAID with kidney disease — risk of further decline in kidney function." },
+  { drug: "cls:nsaid", cond: /ulcer|gi bleed|gastro.?intestinal bleed|haematemesis|melena|malena/i, condLabel: "peptic ulcer / GI bleed", sev: "high",
+    note: "NSAID with a history of ulcer or GI bleeding — high rebleed risk; cover with a PPI or avoid." },
+  { drug: "cls:nsaid", cond: /heart failure|\bccf\b|\bhf\b/i, condLabel: "heart failure", sev: "moderate",
+    note: "NSAID with heart failure — fluid retention and decompensation." },
+  { drug: "metformin", cond: /\b(ckd|kidney failure|renal failure|dialysis)\b|egfr\s*<\s*30/i, condLabel: "advanced kidney disease", sev: "moderate",
+    note: "Metformin with advanced kidney disease — check eGFR; contraindicated below 30." },
+  { drug: "beta_blocker", cond: /asthma/i, condLabel: "asthma", sev: "high",
+    note: "Beta-blocker with asthma — can trigger bronchospasm; non-selective ones especially." },
+  { drug: "cls:raas", cond: /pregnan|garbh/i, condLabel: "pregnancy", sev: "high",
+    note: "ACE inhibitor / ARB in pregnancy — fetotoxic; contraindicated." },
+  { drug: "statin", cond: /pregnan|garbh/i, condLabel: "pregnancy", sev: "high",
+    note: "Statin in pregnancy — contraindicated." },
+  { drug: "warfarin", cond: /pregnan|garbh/i, condLabel: "pregnancy", sev: "high",
+    note: "Warfarin in pregnancy — teratogenic in the first trimester." },
+  { drug: "cls:chelated_abx", cond: /pregnan|garbh/i, condLabel: "pregnancy", sev: "high",
+    note: "Quinolone / tetracycline in pregnancy — generally avoided." },
+  { drug: "cls:sedative", cond: /copd|sleep apn/i, condLabel: "COPD / sleep apnoea", sev: "moderate",
+    note: "Benzodiazepine with COPD or sleep apnoea — respiratory depression." },
+  { drug: "tramadol", cond: /epilep|seizure|fits/i, condLabel: "epilepsy", sev: "moderate",
+    note: "Tramadol with epilepsy — lowers the seizure threshold." },
+  { drug: "cls:hypoglycaemic", cond: /\b(ckd|kidney failure|renal failure)\b/i, condLabel: "kidney disease", sev: "moderate",
+    note: "Sulfonylurea / insulin with kidney disease — longer action, hypoglycaemia risk." },
+];
+
+const drugSide = (side, ag) => side.startsWith("cls:") ? ag.cls === side.slice(4) : ag.id === side;
+
+/* items:       [{ drug, dose, freq, duration }] — the prescription being written
+   allergies:   [{ value, source }]  — every allergy on record, with where it came from
+   conditions:  [{ value, source }]  — diagnoses and past history, likewise
+   current:     [{ value, source }]  — medicines the patient already takes (not today's)
+   pairs:       the existing interaction check, run by the caller over its own sources */
+function checkSafety({ items = [], allergies = [], conditions = [], current = [] } = {}) {
+  const rx = items.filter((it) => it && String(it.drug || "").trim())
+    .map((it, i) => ({ i, drug: String(it.drug).trim(), agents: findAgents(it.drug) }));
+  const out = { allergies: [], duplicates: [], contraindications: [], unrecognised: [], coverage: { lines: rx.length, recognised: 0 } };
+
+  for (const r of rx) { if (r.agents.length) out.coverage.recognised++; else out.unrecognised.push(r.drug); }
+
+  // allergies
+  const realAllergies = allergies.filter((a) => a && a.value && !NONE_RE.test(a.value));
+  for (const al of realAllergies) {
+    const terms = ALLERGY_TERMS.filter((t) => t.re.test(al.value));
+    const named = findAgents(al.value);
+    for (const r of rx) {
+      for (const ag of r.agents) {
+        const direct = named.some((n) => n.id === ag.id) ||
+          terms.some((t) => (t.cls && t.cls === ag.cls) || (t.id && t.id === ag.id));
+        if (direct) {
+          out.allergies.push({ severity: "high", drug: r.drug, allergy: al.value, source: al.source || null,
+            note: "Allergy on record to " + al.value + " — " + r.drug + " is in the same group." });
+          continue;
+        }
+        for (const c of CROSS) {
+          const hasAllergy = terms.some((t) => t.label === c.allergy || t.cls === c.allergy || t.id === c.allergy);
+          if (hasAllergy && ((c.cls && c.cls === ag.cls) || (c.id && c.id === ag.id))) {
+            out.allergies.push({ severity: c.sev, drug: r.drug, allergy: al.value, source: al.source || null, note: c.note });
+          }
+        }
+      }
+    }
+  }
+
+  // duplicates within today's prescription
+  const seenDup = new Set();
+  for (let a = 0; a < rx.length; a++) for (let b = a + 1; b < rx.length; b++) {
+    for (const x of rx[a].agents) for (const y of rx[b].agents) {
+      // One agent id can cover a whole group ("nsaid" is ibuprofen, diclofenac…),
+      // so "the same medicine" means the same agent AND the same name matched.
+      const same = x.id === y.id && x.matched === y.matched, cls = (x.id === y.id || x.cls === y.cls) && (x.id === y.id || DUP_CLASSES[x.cls]);
+      if (!same && !cls) continue;
+      const key = a + "|" + b;
+      if (seenDup.has(key)) continue;
+      seenDup.add(key);
+      out.duplicates.push({ severity: "moderate", drugs: [rx[a].drug, rx[b].drug], where: "today",
+        note: same ? "The same medicine appears twice on this prescription." : "Two medicines from the same group (" + x.cls + ") on one prescription — check both are intended." });
+    }
+  }
+  // today's prescription against what the patient already takes
+  for (const cur of current) {
+    const curAg = findAgents(cur.value);
+    for (const r of rx) for (const x of r.agents) {
+      const y = curAg.find((c) => c.id === x.id || (c.cls === x.cls && DUP_CLASSES[x.cls]));
+      if (!y) continue;
+      out.duplicates.push({ severity: y.id === x.id ? "low" : "moderate", drugs: [r.drug, cur.value], where: "already taking", source: cur.source || null,
+        note: y.id === x.id ? "Already taking this — is it a continuation, or a second supply?" : "Already taking another medicine from the same group (" + x.cls + ")." });
+    }
+  }
+
+  // contraindications
+  const seenC = new Set();
+  for (const c of CONTRA) {
+    const hit = conditions.find((k) => k && k.value && c.cond.test(k.value));
+    if (!hit) continue;
+    for (const r of rx) if (r.agents.some((ag) => drugSide(c.drug, ag))) {
+      const key = c.condLabel + "|" + r.i;
+      if (seenC.has(key)) continue;
+      seenC.add(key);
+      out.contraindications.push({ severity: c.sev, drug: r.drug, condition: c.condLabel, matched: hit.value, source: hit.source || null, note: c.note });
+    }
+  }
+
+  const rank = { high: 0, moderate: 1, low: 2 };
+  for (const k of ["allergies", "duplicates", "contraindications"]) out[k].sort((p, q) => rank[p.severity] - rank[q.severity]);
+  return out;
+}
+
+module.exports = { checkInteractions, checkSafety, findAgents, AGENTS, RULES };

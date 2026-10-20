@@ -640,7 +640,7 @@ function render() {
     lang: scLang, identify: scIdentify, phone: scPhone, abha: scAbha, aadhaar: scAadhaar,
     otp: scOtp, profile: scProfile, consent: scConsent, visit: scVisit, system: scSystem,
     q: scQuestion, red: scRed, docs: scDocs, think: scThink, review: scReview, done: scDone,
-    aiwait: scAiWait, a11y: scA11y,
+    aiwait: scAiWait, a11y: scA11y, report: scReport, nearby: scNearby,
     signin: scSignin, account: scAccount, accountdone: scAccountDone, dash: scDash,
   })[S.screen]();
 
@@ -2151,13 +2151,214 @@ function scDone() {
     '<div class="notice jade" style="text-align:left;margin-top:8px">' + ICON("lock",17) + " " +
       L("इस स्क्रीन का आपका डेटा मिटा दिया गया है।", "Your session data has been erased from this screen.") + "</div></div>";
   foot.innerHTML = '<button class="btn" id="fin">' + L("समाप्त","Finish") + "</button>" +
+    (S.summary && !(S.visit && S.visit.consent && S.visit.consent.record === false)
+      ? '<button class="btn ghost" id="rep">' + ICON("spark", 18) + " " + L("AI स्वास्थ्य सारांश देखें", "See AI health summary") + "</button>" : "") +
     '<button class="btn ghost" id="prn">' + ICON("document", 18) + " " + L("पर्ची छापें","Print slip") + "</button>" +
     (S.hasAccount ? '<button class="btn ghost" id="rec">' + L("मेरा रिकॉर्ड देखें", "See my records") + "</button>" : "");
   document.getElementById("fin").onclick = function () { location.href = "/"; };
   document.getElementById("prn").onclick = printSlip;
+  var repb = document.getElementById("rep");
+  if (repb) repb.onclick = function () { go("report"); };
   var rec = document.getElementById("rec");
   if (rec) rec.onclick = function () { openDashboard(); };
   speak(LX("हो गया। आपका टोकन {}", "All done. Your token is {}", token));
+}
+
+/* ── the patient's AI health summary ───────────────────
+   Prepared on the server the moment the interview is submitted, shown only
+   when the patient asks for it. What may be shown is decided there, not here:
+   no medicines in an emergency, doses only for a short over-the-counter
+   list, anything that clashes with their record moved to "do not take". This
+   screen only lays it out, and says plainly at the top what it is not. */
+/* Buying. Links to the shop's own search page — the patient chooses and pays
+   there; MediKiosk never sees a payment. A prescription medicine still needs
+   a prescription: the shop asks for it at checkout, and the button says so. */
+var SHOPS = [
+  ["Tata 1mg", function (q) { return "https://www.1mg.com/search/all?name=" + encodeURIComponent(q); }],
+  ["PharmEasy", function (q) { return "https://pharmeasy.in/search/all?name=" + encodeURIComponent(q); }],
+  ["Apollo 24|7", function (q) { return "https://www.apollopharmacy.in/search-medicines/" + encodeURIComponent(q); }],
+];
+var JAN_AUSHADHI_URL = "https://janaushadhi.gov.in/locate-kendra";
+/* Shop links open in their own browser WINDOW, not a tab, so the summary
+   stays in view beside the shop. A size in the features string is what makes
+   a browser open a window rather than a tab; where a window cannot be opened
+   (a phone, a popup blocker) the link's own target="_blank" still works. */
+document.addEventListener("click", function (e) {
+  var a = e.target.closest && e.target.closest("a.buybtn, a.shopwin");
+  if (!a) return;
+  var w = Math.min(1100, screen.availWidth - 60), h = Math.min(820, screen.availHeight - 60);
+  var win = null;
+  try { win = window.open("about:blank", "_blank", "popup=yes,width=" + w + ",height=" + h + ",left=" + Math.max(0, screen.availWidth - w - 20) + ",top=30"); } catch (err) {}
+  if (!win) return;            // blocked: let the link open its usual new tab
+  e.preventDefault();
+  win.opener = null;           // the shop gets no handle back into the kiosk
+  win.location.href = a.href;
+});
+function buyRow(name, rx) {
+  return '<div class="buy">' + '<span class="buylbl">' + L("खरीदें", "Buy") + ":</span>" +
+    SHOPS.map(function (s) {
+      return '<a class="buybtn" target="_blank" rel="noopener" href="' + esc(s[1](name)) + '">' + esc(s[0]) + "</a>";
+    }).join("") +
+    (rx ? '<small class="buyrx">' + L("पर्ची चाहिए — दुकान ऑर्डर के समय माँगेगी", "Prescription needed — the shop will ask for it at checkout") + "</small>" : "") +
+    "</div>";
+}
+
+function repLikely(l) {
+  return l === "more likely" ? L("ज़्यादा संभावना", "More likely") : l === "less likely" ? L("कम संभावना", "Less likely") : L("संभव", "Possible");
+}
+function scReport() {
+  body.innerHTML = '<div style="margin:auto;text-align:center;padding:30px 0"><div class="thinking" style="justify-content:center">' +
+    '<span class="spinner"></span><span>' + L("आपका सारांश तैयार हो रहा है…", "Preparing your summary…") + "</span></div></div>";
+  foot.innerHTML = '<button class="btn ghost" id="rback">' + L("वापस", "Back") + "</button>";
+  document.getElementById("rback").onclick = function () { go("done"); };
+  // Keyed by visit: a second interview on the same screen must never show the first one's summary.
+  if (S.report && S.reportFor === S.visit.id) return paintReport();
+  S.report = null; S.near = null;
+  var forVisit = S.visit.id;
+  api("/api/visits/" + forVisit + "/patient-report", null, "GET").then(function (r) {
+    if (!S.visit || S.visit.id !== forVisit) return;
+    S.report = r; S.reportFor = forVisit;
+    if (S.screen === "report") paintReport();
+  }).catch(function (e) {
+    if (S.screen !== "report") return;
+    body.innerHTML = '<div class="notice" style="margin:auto">' + esc(e.message) + "</div>";
+  });
+}
+
+function paintReport() {
+  var r = S.report, d = r.report.data, u = d.urgency;
+  var li = function (x) { return "<li>" + esc(x) + "</li>"; };
+  var sec = function (title, inner) { return inner ? '<div class="summary-sec rep"><h4>' + title + "</h4>" + inner + "</div>" : ""; };
+
+  var urgent = u === "emergency"
+    ? '<div class="rep-urg emg">' + ICON("alert", 26) + "<div><b>" + L("यह आपातकाल हो सकता है", "This could be an emergency") + "</b>" +
+        "<p>" + esc(d.urgencyText || L("अभी इमरजेंसी विभाग जाइए।", "Go to an emergency department now.")) + "</p>" +
+        '<a class="btn" href="tel:108">' + L("108 पर कॉल करें — एम्बुलेंस", "Call 108 — ambulance") + "</a></div></div>"
+    : '<div class="rep-urg ' + u + '">' + ICON(u === "routine" ? "check" : "hourglass", 22) + "<div><b>" +
+        (u === "routine" ? L("जल्दबाज़ी नहीं, पर डॉक्टर को दिखाइए", "Not urgent, but see a doctor") : L("एक-दो दिन में डॉक्टर को दिखाइए", "See a doctor within a day or two")) +
+        "</b>" + (d.urgencyText ? "<p>" + esc(d.urgencyText) + "</p>" : "") + "</div></div>";
+
+  var meds = "";
+  if (d.medicinesNote === "emergency") meds = '<p class="rep-note">' + L("आपातकाल में अपने आप कोई दवा न लें। सीधे अस्पताल जाइए।", "In an emergency, do not take medicines on your own. Go straight to hospital.") + "</p>";
+  else {
+    if (d.medicinesNote === "pregnancy") meds += '<p class="rep-note">' + L("गर्भावस्था में कोई भी दवा डॉक्टर से पूछकर ही लें। इसलिए खुराक नहीं दी गई है।", "In pregnancy, take any medicine only after asking a doctor. That is why no doses are shown.") + "</p>";
+    if (d.medicinesNote === "child") meds += '<p class="rep-note">' + L("बच्चे की दवा की मात्रा डॉक्टर ही तय करें। इसलिए खुराक नहीं दी गई है।", "A child's dose must be set by a doctor. That is why no doses are shown.") + "</p>";
+    meds += d.medicines.length
+      ? '<ul class="rep-meds">' + d.medicines.map(function (m) {
+          return "<li><b>" + esc(m.name) + "</b>" + (m.use ? " — " + esc(m.use) : "") +
+            (m.dose ? '<br><span class="dose">' + esc([m.dose, m.howOften, m.howLong].filter(Boolean).join(" · ")) + "</span>" : "") +
+            (m.needsDoctor ? '<br><span class="rxonly">' + (m.needsDoctor === "prescription"
+              ? L("डॉक्टर की पर्ची चाहिए — खुराक डॉक्टर बताएँगे", "Needs a doctor's prescription — the doctor will set the dose")
+              : L("खुराक डॉक्टर से पूछें", "Ask a doctor for the dose")) + "</span>" : "") +
+            (m.caution ? '<br><small>' + esc(m.caution) + "</small>" : "") + buyRow(m.name, m.kind !== "otc") + "</li>";
+        }).join("") + "</ul>"
+      : '<p class="rep-note">' + L("डॉक्टर को दिखाने से पहले कोई दवा सुझाई नहीं गई है।", "No medicine is suggested before you see a doctor.") + "</p>";
+    meds += '<p class="rep-small">' + L("जो दवाएँ आप पहले से ले रहे हैं, उन्हें डॉक्टर से पूछे बिना बंद न करें।", "Do not stop medicines you already take without asking your doctor.") + "</p>";
+    if (d.medicines.length) meds += '<div class="jan"><b>' + L("सस्ती जेनेरिक दवाएँ", "Cheaper generic medicines") + "</b> — " +
+      L("जन औषधि केंद्र पर वही दवा अक्सर बहुत कम दाम में मिलती है।", "a Jan Aushadhi Kendra often sells the same medicine for much less.") +
+      '<div class="near-btns"><a class="btn ghost shopwin" target="_blank" rel="noopener" href="' + JAN_AUSHADHI_URL + '">' + L("जन औषधि केंद्र खोजें", "Find a Jan Aushadhi Kendra") + "</a>" +
+      '<button class="btn ghost" id="rchem">' + L("पास की दवा की दुकानें", "Chemists near me") + "</button></div></div>";
+  }
+
+  body.innerHTML = '<span class="eyebrow">' + L("आपका AI स्वास्थ्य सारांश", "Your AI health summary") + "</span>" +
+    '<p class="rep-dis">' + ICON("spark", 15) + " " + L("यह AI ने आपके जवाबों से बनाया है। यह निदान नहीं है — आपको क्या है, यह जाँच करके डॉक्टर ही बता सकते हैं।",
+      "Made by AI from your answers. It is not a diagnosis — only a doctor who examines you can say what you have.") + "</p>" +
+    urgent +
+    (d.summary ? '<p class="rep-sum">' + esc(d.summary) + "</p>" : "") +
+    sec(L("क्या हो सकता है", "What it could be"), d.conditions.length ? '<ul class="rep-cond">' + d.conditions.map(function (c) {
+      return '<li><span class="lk lk-' + c.likelihood.replace(" ", "-") + '">' + repLikely(c.likelihood) + "</span> <b>" + esc(c.name) + "</b>" +
+        (c.why ? "<br><small>" + esc(c.why) + "</small>" : "") + "</li>";
+    }).join("") + "</ul>" : "") +
+    sec(L("किस डॉक्टर को दिखाएँ", "Which doctor to see"),
+      (d.specialist && d.specialist.name ? "<p><b>" + esc(d.specialist.name) + "</b>" + (d.specialist.why ? " — " + esc(d.specialist.why) : "") + "</p>" : "") +
+      (r.departmentLabel ? '<p class="rep-small">' + LX("यहाँ आपको {} विभाग भेजा गया है।", "Here, you have been sent to {}.", esc(r.departmentLabel)) + "</p>" : "")) +
+    sec(L("डॉक्टर ये जाँचें करवा सकते हैं", "Tests a doctor may ask for"), d.tests.length ? "<ul>" + d.tests.map(function (t) {
+      return "<li><b>" + esc(t.name) + "</b>" + (t.why ? " — " + esc(t.why) : "") + "</li>"; }).join("") + "</ul>" : "") +
+    sec(L("दवाएँ", "Medicines"), meds +
+      (d.avoidMedicines.length ? '<div class="rep-avoid"><b>' + L("ये न लें", "Do not take") + "</b><ul>" + d.avoidMedicines.map(function (m) {
+        return "<li><b>" + esc(m.name) + "</b>" + (m.why ? " — " + esc(m.why) : "") + "</li>"; }).join("") + "</ul></div>" : "")) +
+    sec(L("घर पर काम आने वाली चीज़ें", "Useful things to have at home"), (d.supplies || []).length ? '<ul class="rep-meds">' + d.supplies.map(function (x) {
+      return "<li><b>" + esc(x.name) + "</b>" + (x.use ? " — " + esc(x.use) : "") + buyRow(x.name, false) + "</li>"; }).join("") + "</ul>" : "") +
+    sec(L("खान-पान", "Food"),
+      (d.eat.length ? "<p><b>" + L("खाइए", "Eat") + ":</b></p><ul>" + d.eat.map(li).join("") + "</ul>" : "") +
+      (d.avoidFood.length ? "<p><b>" + L("परहेज़", "Avoid") + ":</b></p><ul>" + d.avoidFood.map(li).join("") + "</ul>" : "")) +
+    sec(L("दिनचर्या", "Daily routine"), d.lifestyle.length ? "<ul>" + d.lifestyle.map(li).join("") + "</ul>" : "") +
+    sec(L("तुरंत इमरजेंसी जाएँ अगर", "Go to emergency at once if"), d.warningSigns.length ? '<ul class="rep-warn">' + d.warningSigns.map(li).join("") + "</ul>" : "") +
+    (r.report.source === "rules" ? '<p class="rep-small">' + L("AI अभी उपलब्ध नहीं है — यह सारांश नियमों से बनाया गया है।", "AI is not available right now — this summary was put together by rules.") + "</p>" : "");
+
+  foot.innerHTML = '<button class="btn" id="rnear">' + ICON("person", 18) + " " +
+      (u === "emergency" ? L("पास का इमरजेंसी अस्पताल", "Nearest emergency hospital") : L("पास के अस्पताल और क्लिनिक", "Hospitals and clinics near me")) + "</button>" +
+    '<button class="btn ghost" id="rspk">' + ICON("speaker", 18) + " " + L("सुनें", "Listen") + "</button>" +
+    '<button class="btn ghost" id="rback">' + L("वापस", "Back") + "</button>";
+  document.getElementById("rnear").onclick = function () { S.nearEmergency = u === "emergency"; S.nearPharmacy = false; S.near = null; go("nearby"); };
+  var chem = document.getElementById("rchem");
+  if (chem) chem.onclick = function () { S.nearEmergency = false; S.nearPharmacy = true; S.near = null; go("nearby"); };
+  document.getElementById("rspk").onclick = function () {
+    speak([d.urgencyText, d.summary].concat(d.conditions.map(function (c) { return repLikely(c.likelihood) + ": " + c.name; })).filter(Boolean).join(". "));
+  };
+  document.getElementById("rback").onclick = function () { go("done"); };
+}
+
+/* ── hospitals and clinics nearby ──────────────────────
+   Location by permission, or a PIN code typed in instead. Places are real
+   OpenStreetMap entries; a specialty is claimed only where the map records it
+   or the place's own name says so. */
+function scNearby() {
+  var dept = (S.report && S.report.report.data.specialistDept) || (S.visit && S.visit.department);
+  var deptName = (S.near && S.near.departmentLabel) || (S.report && S.report.report.data.specialist && S.report.report.data.specialist.name) || (S.report && S.report.departmentLabel);
+  body.innerHTML = '<span class="eyebrow">' + (S.nearEmergency ? L("पास के इमरजेंसी अस्पताल", "Emergency hospitals near you") : L("आपके पास", "Near you")) + "</span>" +
+    '<h1 class="q" style="font-size:24px">' + (S.nearPharmacy ? L("पास की दवा की दुकानें", "Chemists near me") : S.nearEmergency ? L("सबसे पास का अस्पताल", "The nearest hospital")
+      : LX("{} के लिए अस्पताल और क्लिनिक", "Hospitals and clinics for {}", esc(deptName || L("आपकी समस्या", "your problem")))) + "</h1>" +
+    (S.nearEmergency ? '<a class="btn" href="tel:108" style="margin:6px 0 12px">' + L("108 पर कॉल करें — एम्बुलेंस", "Call 108 — ambulance") + "</a>" : "") +
+    '<div class="near-ask"><button class="btn" id="nloc">' + L("मेरी लोकेशन इस्तेमाल करें", "Use my location") + "</button>" +
+      '<span class="or">' + L("या", "or") + '</span><input class="field mono" id="npin" inputmode="numeric" maxlength="6" placeholder="' + L("पिन कोड", "PIN code") + '" value="' + esc(S.nearPin || "") + '">' +
+      '<button class="btn ghost" id="npgo">' + L("खोजें", "Search") + "</button></div>" +
+    '<div id="nout">' + nearbyListHtml() + "</div>";
+  foot.innerHTML = '<button class="btn ghost" id="nback">' + L("वापस", "Back") + "</button>";
+  document.getElementById("nback").onclick = function () { go(S.report ? "report" : "done"); };
+  function search(params) {
+    document.getElementById("nout").innerHTML = '<div class="thinking"><span class="spinner"></span>' + L("खोज रहे हैं…", "Searching…") + "</div>";
+    var q = Object.keys(params).map(function (k) { return k + "=" + encodeURIComponent(params[k]); }).join("&") +
+      (S.nearPharmacy ? "&type=pharmacy" : (dept ? "&dept=" + encodeURIComponent(dept) : "") + (S.nearEmergency ? "&emergency=1" : ""));
+    api("/api/nearby?" + q, null, "GET").then(function (r) { S.near = r; if (S.screen === "nearby") document.getElementById("nout").innerHTML = nearbyListHtml(); })
+      .catch(function (e) { if (S.screen === "nearby") document.getElementById("nout").innerHTML = '<div class="notice">' + esc(e.message) + "</div>"; });
+  }
+  document.getElementById("nloc").onclick = function () {
+    if (!navigator.geolocation) { document.getElementById("nout").innerHTML = '<div class="notice">' + L("यह डिवाइस लोकेशन नहीं दे सकता। पिन कोड डालिए।", "This device cannot share a location. Enter a PIN code.") + "</div>"; return; }
+    document.getElementById("nout").innerHTML = '<div class="thinking"><span class="spinner"></span>' + L("लोकेशन की अनुमति माँगी जा रही है…", "Asking for permission to use your location…") + "</div>";
+    navigator.geolocation.getCurrentPosition(function (p) { search({ lat: p.coords.latitude.toFixed(4), lon: p.coords.longitude.toFixed(4) }); },
+      function () { document.getElementById("nout").innerHTML = '<div class="notice">' + L("लोकेशन नहीं मिली। पिन कोड डालिए।", "Could not get your location. Enter a PIN code instead.") + "</div>"; },
+      { timeout: 12000, maximumAge: 600000 });
+  };
+  document.getElementById("npgo").onclick = function () {
+    var pin = document.getElementById("npin").value.replace(/\D/g, "");
+    S.nearPin = pin;
+    if (pin.length !== 6) { document.getElementById("nout").innerHTML = '<div class="notice">' + L("6 अंकों का पिन कोड डालिए।", "Enter a 6-digit PIN code.") + "</div>"; return; }
+    search({ pin: pin });
+  };
+}
+
+function nearbyListHtml() {
+  var r = S.near;
+  if (!r) return "";
+  if (!r.places.length) return '<div class="notice">' + (r.pharmacy ? L("पास में कोई दवा की दुकान नहीं मिली।", "No chemist was found nearby.")
+    : L("पास में कोई अस्पताल या क्लिनिक नहीं मिला। 108 पर कॉल करें या स्थानीय सरकारी अस्पताल जाएँ।", "No hospital or clinic was found nearby. Call 108, or go to the local government hospital.")) + "</div>";
+  return (r.placeLabel ? '<p class="rep-small">' + esc(r.placeLabel) + "</p>" : "") +
+    '<ul class="near-list">' + r.places.map(function (p) {
+      var spec = r.specialtySearch && r.departmentLabel
+        ? (p.specialtyMatch === "listed" ? '<span class="lk lk-more-likely">' + LX("{} दर्ज है", "Lists {}", esc(r.departmentLabel)) + "</span>"
+          : p.specialtyMatch === "name" ? '<span class="lk lk-possible">' + LX("नाम से {} लगता है", "Name suggests {}", esc(r.departmentLabel)) + "</span>"
+          : '<span class="lk lk-less-likely">' + LX("{} है या नहीं, फ़ोन करके पूछें", "Call to confirm they have {}", esc(r.departmentLabel)) + "</span>")
+        : "";
+      if (r.pharmacy) spec = p.janAushadhi ? '<span class="lk lk-more-likely">' + L("जन औषधि केंद्र", "Jan Aushadhi Kendra") + "</span>" : "";
+      return "<li><div><b>" + esc(p.name) + "</b> <small>" + esc(p.kind === "hospital" ? L("अस्पताल", "Hospital") : p.kind === "dentist" ? L("दाँतों का क्लिनिक", "Dental clinic")
+        : /pharmacy|chemist/.test(p.kind) ? L("दवा की दुकान", "Chemist") : L("क्लिनिक", "Clinic")) +
+        " · " + p.km + " km</small></div>" + spec +
+        (p.address ? '<small class="addr">' + esc(p.address) + "</small>" : "") +
+        '<div class="near-btns">' + (p.phone ? '<a class="btn ghost" href="tel:' + esc(String(p.phone).split(/[;,]/)[0].replace(/[^\d+]/g, "")) + '">' + ICON("speaker", 15) + " " + esc(String(p.phone).split(/[;,]/)[0]) + "</a>" : "") +
+        '<a class="btn ghost" target="_blank" rel="noopener" href="' + esc(p.directions) + '">' + L("रास्ता देखें", "Directions") + "</a></div></li>";
+    }).join("") + "</ul>" +
+    '<p class="rep-small">' + L("जानकारी OpenStreetMap से है और पुरानी हो सकती है — जाने से पहले फ़ोन कर लें।", "Details come from OpenStreetMap and may be out of date — call before you go.") + "</p>";
 }
 
 applyLangFont();

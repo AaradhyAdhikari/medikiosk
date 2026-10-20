@@ -46,7 +46,10 @@ function esc(s) {
 }
 async function api(url, bodyObj, method) {
   var r = await fetch(url, {
-    method: method || "GET",
+    // A body means POST unless told otherwise — a GET cannot carry one, and
+    // fetch refuses rather than dropping it (this silently broke the live
+    // interaction check, whose catch swallowed the error).
+    method: method || (bodyObj ? "POST" : "GET"),
     headers: bodyObj ? { "Content-Type": "application/json" } : undefined,
     body: bodyObj ? JSON.stringify(bodyObj) : undefined,
   });
@@ -585,6 +588,8 @@ function renderQueue() {
 
 async function openVisit(id) {
   if (READ.on) stopReading();
+  D.record = null; D.recordFor = null;
+  D.txDx = null; D.txBusy = false; D.txError = null; D.rxFromAi = null;
   D.from = D.view === "home" ? "home" : "queue";
   D.view = "case";
   D.amending = false;
@@ -825,8 +830,427 @@ if (READ_OK && typeof window.speechSynthesis.addEventListener === "function") {
   window.speechSynthesis.addEventListener("voiceschanged", function () {});   // loads the voice list early
 }
 
+/* ── structured prescription ────────────────────────────
+   One row per medicine. Every keystroke (after a pause) runs the full safety
+   check — interactions, allergies, duplicates, conditions — against the whole
+   record, without saving. Saving makes a version; approving is its own act. */
+var RX_COLS = [["drug", "Medicine", "e.g. Metformin"], ["dose", "Dose", "500 mg"], ["freq", "When", "1-0-1 after food"],
+               ["duration", "For", "30 days"], ["notes", "Notes", ""]];
+
+function legacyRx(text) {
+  return String(text || "").split(/\n|;/).map(function (l) { return l.replace(/^\s*\d+[.)]\s*/, "").trim(); })
+    .filter(function (l) { return l && !/^advice\s*:/i.test(l); })
+    .map(function (l) { return { drug: l, dose: "", freq: "", duration: "", notes: "" }; });
+}
+function rxStart(v) {
+  if (D.rxFor === v.id && D.rxDraft) return;
+  D.rxFor = v.id;
+  D.rxDraft = v.rx ? v.rx.items.map(function (x) { return Object.assign({}, x); }) : legacyRx(v.prescription);
+  D.rxAdvice = v.rx ? (v.rx.advice || "") : ((String(v.prescription || "").match(/advice\s*:\s*(.*)$/im) || [])[1] || "");
+  if (!D.rxDraft.length) D.rxDraft.push({ drug: "", dose: "", freq: "", duration: "", notes: "" });
+  D.rxSafety = v.rxSafety || null;
+}
+
+function rxRowsHtml() {
+  return D.rxDraft.map(function (it, i) {
+    return '<div class="rxrow" data-i="' + i + '">' + RX_COLS.map(function (c) {
+      return '<input class="field rxin rx-' + c[0] + '" data-f="' + c[0] + '" aria-label="' + c[1] + '" placeholder="' +
+        (i === 0 ? c[2] || c[1] : c[1]) + '" value="' + esc(it[c[0]] || "") + '">';
+    }).join("") + '<button class="rxdel" data-del="' + i + '" title="Remove this line" aria-label="Remove">×</button></div>';
+  }).join("");
+}
+
+function sevBadge(sv) {
+  return '<span class="badge ' + (sv === "high" ? "vermilion" : sv === "moderate" ? "haldi" : "grey") +
+    '" style="padding:2px 8px;font-size:11px">' + esc(sv) + "</span>";
+}
+function rxSafetyHtml(sf) {
+  if (!sf) return '<div id="rxsafe" class="rxsafe quiet">Safety check runs as you type.</div>';
+  var rows = [];
+  (sf.allergies || []).forEach(function (x) { rows.push([x.severity, "Allergy", "<b>" + esc(x.drug) + "</b> — " + esc(x.note), x.source && x.source.label]); });
+  (sf.contraindications || []).forEach(function (x) { rows.push([x.severity, "Condition", "<b>" + esc(x.drug) + "</b> with " + esc(x.condition) + " — " + esc(x.note), x.source && x.source.label]); });
+  (sf.interactions || []).forEach(function (x) { rows.push([x.severity, "Interaction", "<b>" + esc(x.a.matched) + "</b> + <b>" + esc(x.b.matched) + "</b> — " + esc(x.note), null]); });
+  (sf.duplicates || []).forEach(function (x) { rows.push([x.severity, "Duplicate", "<b>" + esc(x.drugs.join(" / ")) + "</b> — " + esc(x.note), x.source && x.source.label]); });
+  var rank = { high: 0, moderate: 1, low: 2 };
+  rows.sort(function (a, b) { return rank[a[0]] - rank[b[0]]; });
+  var cov = sf.coverage || { lines: 0, recognised: 0 };
+  return '<div id="rxsafe" class="rxsafe' + (rows.length ? "" : " clear") + '">' +
+    (rows.length
+      ? "<ul>" + rows.map(function (r) {
+          return '<li class="sv-' + r[0] + '">' + sevBadge(r[0]) + ' <span class="rxkind">' + r[1] + "</span> " + r[2] +
+            (r[3] ? '<small class="src">' + ICON("document", 12) + " " + esc(r[3]) + "</small>" : "") + "</li>";
+        }).join("") + "</ul>"
+      : "<p>" + ICON("check", 15) + " Nothing flagged for the " + cov.recognised + " medicine(s) the checker recognises.</p>") +
+    ((sf.unrecognised || []).length
+      ? '<p class="unrec">Not in the checker\'s list — check these yourself: <b>' + sf.unrecognised.map(esc).join(", ") + "</b></p>"
+      : "") +
+    '<p class="foot">A short curated list of well-known cautions against the allergies, conditions and medicines on record — not a formulary. You decide.</p>' +
+    "</div>";
+}
+
+function rxHistoryHtml(v) {
+  var h = v.rxHistory || [];
+  if (!h.length) return "";
+  var names = v.clinicianNames || {};
+  return '<details class="rxhist"><summary>Prescription history · ' + h.length + " version" + (h.length > 1 ? "s" : "") + "</summary><ol>" +
+    h.slice().reverse().map(function (x) {
+      var d = x.diff || {}, bits = [];
+      if (d.added && d.added.length) bits.push("added " + d.added.map(esc).join(", "));
+      if (d.removed && d.removed.length) bits.push("removed " + d.removed.map(esc).join(", "));
+      (d.changed || []).forEach(function (c) { bits.push(esc(c.drug) + " (" + c.changes.map(esc).join("; ") + ")"); });
+      return "<li><b>v" + x.version + "</b> · " + esc(new Date(x.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })) +
+        " · " + esc(names[x.by] || "clinician") +
+        (x.approvedAt ? ' <span class="badge jade" style="padding:1px 7px;font-size:11px">approved' +
+          (x.approvedBy && x.approvedBy !== x.by ? " by " + esc(names[x.approvedBy] || "clinician") : "") + "</span>" : "") +
+        "<br><small>" + (bits.length ? bits.join(" · ") : "advice changed") + (x.reason ? " — " + esc(x.reason) : "") + "</small>" +
+        (x.fromAi ? '<br><small class="fromai">' + ICON("spark", 12) + " Includes AI option" + ([].concat(x.fromAi).length > 1 ? "s " : " ") +
+          [].concat(x.fromAi).map(function (f) { return "“" + esc(f.title) + "”"; }).join(", ") + " — reviewed and saved by the clinician</small>" : "") +
+        "</li>";
+    }).join("") + "</ol></details>";
+}
+
+function rxPanelInner(v) {
+  var prev = (D.record && D.record.timeline || []).filter(function (t) { return t.id !== v.id && t.rx && t.rx.length; })[0];
+  var st = v.rx ? v.rx.status : null;
+  return '<div class="rxhead"><b>Prescription</b>' +
+      (st ? '<span class="badge ' + (st === "approved" ? "jade" : "haldi") + '" style="padding:3px 10px;font-size:11.5px">' +
+        (st === "approved" ? "approved · v" + v.rx.version : "draft · v" + v.rx.version + " — not yet approved") + "</span>" : "") +
+    "</div>" +
+    '<div class="rxgrid"><div class="rxlabels">' + RX_COLS.map(function (c) { return "<span>" + c[1] + "</span>"; }).join("") + "<span></span></div>" +
+      '<div id="rxrows">' + rxRowsHtml() + "</div></div>" +
+    '<div class="row rxbtns">' +
+      '<button class="btn ghost" id="rxadd">+ Add medicine</button>' +
+      (prev ? '<button class="btn ghost" id="rxcarry" title="Copy the prescription from ' + esc(new Date(prev.date).toLocaleDateString("en-IN")) + '">' +
+        "Carry over last prescription (" + prev.rx.length + ")</button>" : "") +
+    "</div>" +
+    rxSafetyHtml(D.rxSafety) +
+    '<textarea id="rxadv" placeholder="Advice — diet, activity, follow-up">' + esc(D.rxAdvice || "") + "</textarea>" +
+    rxHistoryHtml(v);
+}
+
+function rxCollect() {
+  var rows = document.querySelectorAll("#rxrows .rxrow");
+  D.rxDraft = Array.prototype.map.call(rows, function (r) {
+    var o = {};
+    RX_COLS.forEach(function (c) { o[c[0]] = r.querySelector('[data-f="' + c[0] + '"]').value; });
+    return o;
+  });
+  var adv = document.getElementById("rxadv");
+  if (adv) D.rxAdvice = adv.value;
+  return D.rxDraft.filter(function (x) { return String(x.drug || "").trim(); });
+}
+
+var rxCheckT = null;
+function rxCheckSoon(v) {
+  clearTimeout(rxCheckT);
+  rxCheckT = setTimeout(async function () {
+    try {
+      var r = await api("/api/visits/" + v.id + "/safety", { items: rxCollect() });
+      D.rxSafety = r.safety;
+      var el = document.getElementById("rxsafe");
+      if (el) el.outerHTML = rxSafetyHtml(D.rxSafety);
+    } catch (e) { /* the last check still stands */ }
+  }, 700);
+}
+
+function bindRx(v) {
+  var box = document.getElementById("rxbox");
+  if (!box) return;
+  box.oninput = function (e) {
+    if (e.target.classList.contains("rxin") || e.target.id === "rxadv") { rxCollect(); if (e.target.id !== "rxadv") rxCheckSoon(v); }
+  };
+  box.onclick = function (e) {
+    var del = e.target.closest("[data-del]");
+    if (del) {
+      rxCollect(); D.rxDraft.splice(Number(del.getAttribute("data-del")), 1);
+      if (!D.rxDraft.length) D.rxDraft.push({ drug: "", dose: "", freq: "", duration: "", notes: "" });
+      document.getElementById("rxrows").innerHTML = rxRowsHtml(); rxCheckSoon(v); return;
+    }
+    if (e.target.id === "rxadd") {
+      rxCollect(); D.rxDraft.push({ drug: "", dose: "", freq: "", duration: "", notes: "" });
+      document.getElementById("rxrows").innerHTML = rxRowsHtml();
+      var ins = document.querySelectorAll("#rxrows .rx-drug"); ins[ins.length - 1].focus(); return;
+    }
+    if (e.target.id === "rxcarry") {
+      var prev = (D.record.timeline || []).filter(function (t) { return t.id !== v.id && t.rx && t.rx.length; })[0];
+      rxCollect();
+      var have = D.rxDraft.filter(function (x) { return String(x.drug || "").trim(); });
+      prev.rx.forEach(function (x) {
+        if (!have.some(function (h) { return h.drug.toLowerCase() === String(x.drug).toLowerCase(); })) have.push(Object.assign({}, x));
+      });
+      D.rxDraft = have.length ? have : [{ drug: "", dose: "", freq: "", duration: "", notes: "" }];
+      document.getElementById("rxrows").innerHTML = rxRowsHtml(); rxCheckSoon(v);
+    }
+  };
+  if (!D.rxSafety) rxCheckSoon(v);
+}
+
+/* ── the continuous record ──────────────────────────────
+   Every allergy, condition and medicine the patient has ever had on file,
+   each with where it came from. A clinician can confirm, correct, remove or
+   add — the original statement and who changed it stay visible. */
+var REC_TYPES = [["allergy", "allergies", "Allergies"], ["condition", "conditions", "Conditions & diagnoses"], ["medication", "medications", "Medicines"]];
+
+function factHtml(f) {
+  var srcs = f.sources || [];
+  var last = srcs[srcs.length - 1] || {};
+  var all = srcs.map(function (s) { return s.label + (s.detail ? " (" + s.detail + ")" : "") + (s.note ? " — " + s.note : ""); }).join("\n");
+  return '<li class="fact' + (f.status === "removed" ? " removed" : "") + (f.type === "medication" && !f.current ? " earlier" : "") + '" data-key="' + esc(f.key) + '">' +
+    '<div class="fv"><span class="fval">' + esc(f.value) + "</span>" +
+      (f.confirmed ? ' <span class="badge jade" style="padding:1px 7px;font-size:10.5px">confirmed</span>' : "") +
+      (f.type === "medication" && !f.current && f.status !== "removed" ? ' <span class="badge grey" style="padding:1px 7px;font-size:10.5px">earlier</span>' : "") +
+    "</div>" +
+    '<small class="src" title="' + esc(all) + '">' + ICON("document", 12) + " " + esc(last.label || "") +
+      (srcs.length > 1 ? " · +" + (srcs.length - 1) + " more" : "") + "</small>" +
+    (f.edited ? '<small class="fnote">Was “' + esc(f.edited.from) + "” — corrected by " + esc(f.edited.by) + (f.edited.note ? ": " + esc(f.edited.note) : "") + "</small>" : "") +
+    (f.status === "removed"
+      ? '<small class="fnote">Removed by ' + esc(f.removed.by) + (f.removed.note ? ": " + esc(f.removed.note) : "") + "</small>" +
+        '<div class="factbtns"><button data-act="restore">Restore</button></div>'
+      : '<div class="factbtns">' + (f.confirmed ? "" : '<button data-act="confirm">Confirm</button>') +
+        '<button data-act="edit">Correct</button><button data-act="remove">Remove</button></div>') +
+    "</li>";
+}
+
+function recordHtml(rec) {
+  if (!rec) return '<div class="panel" id="recpanel"><h3>Patient record</h3><p class="quiet">Loading the record…</p></div>';
+  return '<div class="panel" id="recpanel"><h3>Patient record · every visit</h3>' +
+    REC_TYPES.map(function (t) {
+      var list = rec[t[1]] || [];
+      return '<div class="recsec"><div class="recsh"><b>' + t[2] + "</b>" +
+        '<button class="linkbtn" data-add="' + t[0] + '">+ Add</button></div>' +
+        (list.length
+          ? '<ul class="facts">' + list.map(factHtml).join("") + "</ul>"
+          : '<p class="quiet">' + (t[0] === "allergy" && rec.noAllergiesSaid.length
+              ? "No known allergies (said " + rec.noAllergiesSaid.length + " time" + (rec.noAllergiesSaid.length > 1 ? "s" : "") + ")."
+              : "Nothing on record.") + "</p>") +
+        "</div>";
+    }).join("") +
+    '<details class="timeline"><summary>Visit timeline · ' + rec.timeline.length + "</summary><ol>" +
+      rec.timeline.map(function (t) {
+        return "<li" + (t.current ? ' class="cur"' : "") + "><b>" + esc(new Date(t.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })) +
+          "</b> · " + esc(t.token || "") + (t.department ? " · " + esc(t.department) : "") + (t.current ? " · <i>this visit</i>" : "") +
+          (t.complaint ? "<br><small>" + esc(t.complaint) + "</small>" : "") +
+          (t.diagnosis ? "<br><small><b>Dx</b> " + esc(t.diagnosis) + (t.clinician ? " — " + esc(t.clinician) : "") + "</small>" : "") +
+          (t.rx && t.rx.length ? "<br><small><b>Rx</b> " + t.rx.map(function (x) { return esc([x.drug, x.dose].filter(Boolean).join(" ")); }).join(", ") +
+            (t.rxVersions > 1 ? " · " + t.rxVersions + " versions" : "") + "</small>" : "") +
+          "</li>";
+      }).join("") + "</ol></details>" +
+    '<p class="foot">Built from every visit, the kiosk interviews, prescriptions and scanned papers. Corrections are kept on top — nothing is overwritten.</p>' +
+    "</div>";
+}
+
+function sinceHtml(rec) {
+  var s = rec && rec.sinceLast;
+  if (!s || !s.previous) return '<div id="since"></div>';
+  var p = s.previous;
+  return '<div class="panel since" id="since"><h3>Since the last visit · ' +
+    esc(new Date(p.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })) +
+    " (" + p.days + " days ago)</h3>" +
+    (p.diagnosis ? '<p class="sprev">Last time: <b>' + esc(p.diagnosis) + "</b>" + (p.clinician ? " — " + esc(p.clinician) : "") + "</p>" : "") +
+    (s.items.length
+      ? '<ul class="sitems">' + s.items.map(function (x) { return '<li class="sv-' + x.severity + '">' + sevBadge(x.severity) + " " + esc(x.text) + "</li>"; }).join("") + "</ul>"
+      : '<p class="quiet">No change in medicines or allergies since then.</p>') +
+    (s.aiNote ? '<p class="snote"><b>Patient\'s account:</b> ' + esc(s.aiNote) + "</p>" : "") +
+    "</div>";
+}
+
+async function loadRecord(v) {
+  try {
+    var r = await api("/api/patients/" + v.patientId + "/record?visit=" + encodeURIComponent(v.id));
+    if (D.view !== "case" || !D.visit || D.visit.id !== v.id) return;
+    D.record = r.record; D.recordFor = v.id;
+    paintRecord(v);
+  } catch (e) {
+    var el = document.getElementById("recpanel");
+    if (el) el.innerHTML = "<h3>Patient record</h3><p class=\"quiet\">" + esc(e.message) + "</p>";
+  }
+}
+function paintRecord(v) {
+  var a = document.getElementById("recpanel"); if (a) a.outerHTML = recordHtml(D.record);
+  var b = document.getElementById("since"); if (b) b.outerHTML = sinceHtml(D.record);
+  // The "carry over" button needs the record; add it once the record is here.
+  var hasPrev = (D.record.timeline || []).some(function (t) { return t.id !== v.id && t.rx && t.rx.length; });
+  if (hasPrev && !document.getElementById("rxcarry") && document.getElementById("rxbox")) {
+    rxCollect(); document.getElementById("rxbox").innerHTML = rxPanelInner(v);
+  }
+  bindRecord(v);
+}
+
+async function recordEdit(v, body) {
+  body.visitId = v.id;
+  try {
+    var r = await api("/api/patients/" + v.patientId + "/record/edits", body);
+    D.record = r.record;
+    paintRecord(v);
+    rxCheckSoon(v);   // an allergy removed or added changes the check
+  } catch (e) { alert(e.message); }
+}
+
+function bindRecord(v) {
+  var p = document.getElementById("recpanel");
+  if (!p) return;
+  p.onclick = function (e) {
+    var b = e.target.closest("button");
+    if (!b) return;
+    var add = b.getAttribute("data-add");
+    if (add) {
+      var val = prompt("Add to " + add + " (as it should read in the record):");
+      if (val && val.trim()) recordEdit(v, { action: "add", type: add, value: val.trim() });
+      return;
+    }
+    var act = b.getAttribute("data-act"), li = b.closest("[data-key]");
+    if (!act || !li) return;
+    var key = li.getAttribute("data-key");
+    if (act === "edit") {
+      var cur = li.querySelector(".fval").textContent;
+      var nv = prompt("Correct this entry:", cur);
+      if (nv && nv.trim() && nv.trim() !== cur) recordEdit(v, { action: "edit", key: key, value: nv.trim(), note: prompt("Why? (optional, kept on the record)") || "" });
+      return;
+    }
+    if (act === "remove") {
+      var why = prompt("Why remove it? (kept on the record — the original statement stays visible)");
+      if (why === null) return;
+      recordEdit(v, { action: "remove", key: key, note: why });
+      return;
+    }
+    recordEdit(v, { action: act, key: key });
+  };
+}
+
+/* ── AI treatment options ───────────────────────────────
+   Asked for, never automatic. Kept apart from the diagnosis and the
+   prescription; "Use as draft" copies medicines into the prescription rows
+   and records who adopted them — the prescription still needs approving. */
+function txOptionHtml(o, names) {
+  var sf = o.safety || {};
+  var flags = [].concat(
+    (sf.allergies || []).map(function (x) { return [x.severity, "Allergy", x.note]; }),
+    (sf.contraindications || []).map(function (x) { return [x.severity, "Condition", x.drug + " with " + x.condition + " — " + x.note]; }),
+    (sf.interactions || []).map(function (x) { return [x.severity, "Interaction", x.a.matched + " + " + x.b.matched + " — " + x.note]; }),
+    (sf.duplicates || []).map(function (x) { return [x.severity, "Duplicate", x.drugs.join(" / ") + " — " + x.note]; }));
+  var who = o.decidedBy ? (names[o.decidedBy] || "clinician") : "";
+  return '<div class="txopt st-' + o.status + (sf.high ? " risky" : "") + '" data-opt="' + esc(o.id) + '">' +
+    '<div class="txh"><b>' + esc(o.title) + "</b>" +
+      (o.approach ? '<span class="badge grey" style="padding:2px 9px;font-size:11px">' + esc(o.approach) + "</span>" : "") +
+      (o.status === "adopted" ? '<span class="badge jade" style="padding:2px 9px;font-size:11px">used as draft by ' + esc(who) + "</span>" : "") +
+      (o.status === "dismissed" ? '<span class="badge grey" style="padding:2px 9px;font-size:11px">dismissed by ' + esc(who) + "</span>" : "") +
+    "</div>" +
+    (o.medicines.length
+      ? '<ul class="txmeds">' + o.medicines.map(function (m) {
+          return "<li><b>" + esc(m.drug) + "</b> " + esc([m.dose, m.freq, m.duration].filter(Boolean).join(" · ")) +
+            (m.notes ? ' <small>— ' + esc(m.notes) + "</small>" : "") + "</li>";
+        }).join("") + "</ul>" : "") +
+    (o.nonDrug.length ? '<p class="txnd"><b>Also:</b> ' + o.nonDrug.map(esc).join("; ") + "</p>" : "") +
+    (o.rationale ? '<p class="txwhy">' + esc(o.rationale) + "</p>" : "") +
+    (o.cautions.length ? '<p class="txcau"><b>Cautions:</b> ' + o.cautions.map(esc).join("; ") + "</p>" : "") +
+    (o.monitoring ? '<p class="txmisc"><b>Monitor:</b> ' + esc(o.monitoring) + "</p>" : "") +
+    (o.escalate ? '<p class="txmisc"><b>Review sooner if:</b> ' + esc(o.escalate) + "</p>" : "") +
+    (flags.length
+      ? '<div class="txsafe"><b>' + ICON("alert", 14) + " Safety check on this option</b><ul>" +
+        flags.map(function (f) { return '<li class="sv-' + f[0] + '">' + sevBadge(f[0]) + ' <span class="rxkind">' + f[1] + "</span> " + esc(f[2]) + "</li>"; }).join("") + "</ul></div>"
+      : '<p class="txok">' + ICON("check", 14) + " Nothing flagged against this patient's record" +
+        ((sf.unrecognised || []).length ? " — not recognised by the checker: " + sf.unrecognised.map(esc).join(", ") : "") + ".</p>") +
+    (o.status === "proposed"
+      ? '<div class="row txbtns">' +
+          (o.medicines.length ? '<button class="btn ghost" data-txact="adopted">Use as prescription draft</button>' : "") +
+          '<button class="btn ghost" data-txact="dismissed">Dismiss</button></div>'
+      : '<div class="row txbtns"><button class="linkbtn" data-txact="proposed">Undo</button></div>') +
+    "</div>";
+}
+
+function txPanelHtml(v) {
+  var t = v.aiTreatment, names = v.clinicianNames || {};
+  var dxGuess = v.diagnosis || ((v.summary && v.summary.differentials || [])[0] || {}).condition || "";
+  return '<div class="panel txpanel" id="txpanel"><h3>AI treatment options · for your consideration</h3>' +
+    '<p class="dis">Suggestions for you to weigh against your own examination. They are not part of the diagnosis or the prescription, and nothing here is given to the patient unless you prescribe it.</p>' +
+    '<div class="txask"><input class="field" id="txdx" placeholder="Working diagnosis" value="' + esc(D.txDx != null ? D.txDx : dxGuess) + '">' +
+      '<button class="btn" id="txgo">' + (t ? "Suggest again" : "Suggest options") + "</button></div>" +
+    '<p class="txhint">Uses your working diagnosis, the history, and the allergies, conditions and medicines on record. ' +
+      "Leave it blank to use the AI's top differential (it will be labelled as unconfirmed).</p>" +
+    '<div id="txout">' + (D.txBusy ? '<div class="thinking"><span class="spinner"></span>Asking the AI for options…</div>' : "") +
+      (D.txError ? '<div class="notice">' + esc(D.txError) + "</div>" : "") +
+      (t && !D.txBusy
+        ? '<p class="txbased">For <b>' + esc(t.basedOn.diagnosis) + "</b>" +
+            (t.basedOn.source === "ai-differential" ? ' <span class="badge haldi" style="padding:1px 8px;font-size:11px">AI differential — not confirmed</span>' : "") +
+            " · " + esc(new Date(t.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })) + " · asked by " + esc(names[t.by] || "clinician") + "</p>" +
+          (t.urgent ? '<div class="alert emg" style="margin:8px 0"><b>' + ICON("alert", 16) + " The AI reads this as urgent.</b> " + esc(t.urgentReason || "") + "</div>" : "") +
+          (t.confirmFirst && t.confirmFirst.length ? '<p class="txconf"><b>Confirm first:</b> ' + t.confirmFirst.map(esc).join("; ") + "</p>" : "") +
+          (t.options.length ? t.options.map(function (o) { return txOptionHtml(o, names); }).join("") : '<p class="quiet">The AI offered no usable options.</p>')
+        : "") +
+    "</div></div>";
+}
+
+function paintTx(v) {
+  var el = document.getElementById("txpanel");
+  if (el) { el.outerHTML = txPanelHtml(v); bindTx(v); }
+}
+
+function bindTx(v) {
+  var p = document.getElementById("txpanel");
+  if (!p) return;
+  var dx = document.getElementById("txdx");
+  dx.oninput = function () { D.txDx = dx.value; };
+  document.getElementById("txgo").onclick = async function () {
+    D.txBusy = true; D.txError = null; D.txDx = dx.value; paintTx(v);
+    try {
+      var r = await api("/api/visits/" + v.id + "/ai/treatment", { diagnosis: D.txDx });
+      D.visit.aiTreatment = r.aiTreatment;
+      D.visit.clinicianNames = Object.assign({}, D.visit.clinicianNames, r.clinicianNames);
+    } catch (e) { D.txError = e.message; }
+    D.txBusy = false; paintTx(D.visit);
+  };
+  p.onclick = async function (e) {
+    var b = e.target.closest("[data-txact]");
+    if (!b) return;
+    var card = b.closest("[data-opt]"), decision = b.getAttribute("data-txact");
+    var opt = D.visit.aiTreatment.options.filter(function (o) { return o.id === card.getAttribute("data-opt"); })[0];
+    if (decision === "adopted" && opt.safety && opt.safety.high &&
+        !confirm("This option has " + opt.safety.high + " high-severity caution(s) against the patient's record. Copy it into the prescription draft anyway?")) return;
+    try {
+      var r = await api("/api/visits/" + v.id + "/ai/treatment/decision", { optionId: opt.id, decision: decision });
+      D.visit.aiTreatment = r.aiTreatment;
+      D.visit.clinicianNames = Object.assign({}, D.visit.clinicianNames, r.clinicianNames);
+    } catch (err) { alert(err.message); return; }
+    if (decision === "adopted") {
+      rxCollect();
+      var have = D.rxDraft.filter(function (x) { return String(x.drug || "").trim(); });
+      r.option.medicines.forEach(function (m) {
+        if (!have.some(function (h) { return h.drug.toLowerCase() === m.drug.toLowerCase(); })) have.push(Object.assign({}, m));
+      });
+      D.rxDraft = have; D.rxFromAi = (D.rxFromAi || []).concat(r.option.id);
+      var rows = document.getElementById("rxrows");
+      if (rows) rows.innerHTML = rxRowsHtml();
+      rxCheckSoon(v);
+      var box = document.getElementById("rxbox");
+      if (box) box.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    paintTx(D.visit);
+  };
+}
+
+/* What the kiosk offered the patient, so the physician knows what they were
+   told before walking in — and what the guardrails held back. */
+function patientReportHtml(v) {
+  var pr = v.patientReport;
+  if (!pr || pr.status !== "ready" || !pr.data) return "";
+  var d = pr.data;
+  return '<div class="panel prpanel"><h3>The patient\'s AI summary · ' + (pr.viewedAt
+      ? "opened by the patient " + esc(new Date(pr.viewedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }))
+      : "prepared, not opened") + "</h3>" +
+    '<p class="prline"><b>Urgency told:</b> ' + esc(d.urgency) + (pr.source === "rules" ? " · assembled by rules (no AI)" : "") + "</p>" +
+    (d.conditions.length ? '<p class="prline"><b>Possible conditions shown:</b> ' + d.conditions.map(function (c) { return esc(c.nameEn || c.name) + " (" + esc(c.likelihood) + ")"; }).join(", ") + "</p>" : "") +
+    (d.medicines.length ? '<p class="prline"><b>Medicines shown:</b> ' + d.medicines.map(function (m) { return esc(m.name) + (m.dose ? " " + esc(m.dose) : " (no dose — prescription)"); }).join(", ") + "</p>" : "") +
+    (d.avoidMedicines.length ? '<p class="prline"><b>Told not to take:</b> ' + d.avoidMedicines.map(function (m) { return esc(m.name); }).join(", ") + "</p>" : "") +
+    ((d.guard || []).length ? '<p class="prline muted"><b>Held back by the safety rules:</b> ' + d.guard.map(esc).join("; ") + "</p>" : "") +
+    "</div>";
+}
+
 function renderCase() {
+
+
   var v = D.visit, s = v.summary || {}, a = s.ayurveda || {};
+  rxStart(v);
+  if (D.recordFor !== v.id) D.record = null;
   var pk = a.prakriti || { vata: 33, pitta: 33, kapha: 34 };
   var docs = v.documents || [];
 
@@ -862,6 +1286,10 @@ function renderCase() {
       /* Height and weight, filled in when the patient comes in. What the kiosk
          has is the patient's own estimate; a reading taken here replaces it. */
       vitalsStrip(v) +
+
+      /* What moved since this patient was last seen — filled in once the
+         record arrives. */
+      sinceHtml(D.record) +
 
       (s.redFlags && s.redFlags.length
         ? '<div class="alert emg" style="margin-bottom:16px">' +
@@ -975,6 +1403,9 @@ function renderCase() {
             "</div>";
         })() +
 
+        patientReportHtml(v) +
+        txPanelHtml(v) +
+
         (s.suggestedQuestions && s.suggestedQuestions.length
           ? '<div class="panel" style="margin-top:16px"><h3>Worth asking</h3><ul style="margin:0;padding-left:20px;font-size:16px;line-height:1.7">' +
             s.suggestedQuestions.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></div>"
@@ -992,12 +1423,16 @@ function renderCase() {
             ? '<p style="font-size:12.5px;color:var(--muted);margin:-2px 0 9px">Codes above are AI suggestions ' +
               "(confidence: " + esc(s.coding.confidence || "low") + "). Confirm or replace them.</p>"
             : "") +
-          '<textarea id="rx" placeholder="Medicines, dose, duration, advice">' + esc(v.prescription || "") + "</textarea>" +
-          '<button class="btn" id="save" style="margin-top:11px">Save &amp; mark assessed</button>' +
+          '<div id="rxbox">' + rxPanelInner(v) + '</div><span id="rxcarryslot"></span>' +
+          '<div class="row" style="margin-top:11px;gap:9px">' +
+            '<button class="btn ghost" id="rxsave" style="width:auto;flex:none">Save draft</button>' +
+            '<button class="btn" id="save" style="flex:1">Approve prescription &amp; mark assessed</button></div>' +
           '<p style="font-size:12.5px;color:var(--muted);margin:9px 0 0">Writes back to the patient\'s record, so their next ' +
           "follow-up interview starts from this.</p></div>" +
       "</div><div>" +
 
+        recordHtml(D.record) +
+        '<div style="height:16px"></div>' +
         routingPanel(v) +
 
         '<div style="height:16px"></div>' +
@@ -1074,28 +1509,34 @@ function renderCase() {
   document.getElementById("vsave").onclick = function () {
     patchVisit({ vitals: { heightCm: vh.value, weightKg: vw.value } });
   };
-  /* The interaction panel answers the prescription as it is typed: a
-     second's pause after the last keystroke, one request, no save. */
-  var rxBox = document.getElementById("rx"), rxT = null;
-  rxBox.oninput = function () {
-    clearTimeout(rxT);
-    rxT = setTimeout(async function () {
-      try {
-        var r = await api("/api/visits/" + v.id + "/interactions", { prescription: rxBox.value });
-        D.visit.summary = Object.assign({}, D.visit.summary, { interactions: r.interactions });
-        var panel = document.getElementById("ixn");
-        if (panel) panel.outerHTML = interactionsPanel(D.visit.summary);
-      } catch (e) { /* the saved check still stands */ }
-    }, 900);
+  bindRx(v);
+  bindTx(v);
+  if (D.record) bindRecord(v); else loadRecord(v);
+  function rxBody(extra) {
+    var items = rxCollect();
+    var rx = { items: items, advice: D.rxAdvice || "" };
+    if (D.rxFromAi) rx.fromAiOption = D.rxFromAi;
+    return Object.assign({ rx: rx }, extra || {});
+  }
+  document.getElementById("rxsave").onclick = async function () {
+    await patchVisit(rxBody());
+    D.rxSafety = D.visit.rxSafety || D.rxSafety;
+    D.rxFromAi = null;
+    D.rxFor = null; rxStart(D.visit); renderCase();
+    loadRecord(D.visit);
   };
   document.getElementById("save").onclick = async function () {
-    await patchVisit({
+    var sf = D.rxSafety;
+    var high = sf ? [].concat(sf.allergies || [], sf.contraindications || [], sf.interactions || [])
+      .filter(function (x) { return x.severity === "high"; }) : [];
+    if (high.length && !confirm(high.length + " high-severity caution(s) are open on this prescription. Approve it anyway?")) return;
+    await patchVisit(rxBody({
       diagnosis: document.getElementById("dx").value,
-      prescription: document.getElementById("rx").value,
       icd10: document.getElementById("icd").value,
       namaste: document.getElementById("nam").value,
       status: "ASSESSED",
-    });
+    }));
+    D.rxFor = null; D.record = null; D.recordFor = null; D.rxFromAi = null;
     D.view = "queue"; renderQueue(); loadQueue();
   };
 

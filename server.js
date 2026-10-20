@@ -1266,7 +1266,7 @@ function reconcileDepartment(modelDept, ruleDept, system) {
 /* The provider code lives in ai.js so tools/ai-bench.js can drive the same
    reader without booting the kiosk. Everything below is a binding. */
 const AI = require("./ai").configure(process.env, { serverless: SERVERLESS });
-const { checkInteractions } = require("./interactions");
+const { checkInteractions, checkSafety, findAgents } = require("./interactions");
 
 /* Module B: possible drug interactions, from every medicine this visit has
    seen — each scanned paper, what the patient said they take, the summary's
@@ -1289,11 +1289,706 @@ function interactionsFor(visit) {
   if (visit.prescription) sources.push({ label: "Today's prescription", text: visit.prescription });
   return checkInteractions(sources);
 }
+// ─────────────────────────────────────────── prescriptions and the record
+
+/* A prescription is a list of lines, not a paragraph: that is what lets the
+   console check each medicine against the patient's allergies, conditions and
+   current medicines, and what lets the next visit say "dose changed". Every
+   save is a version, so a change is never an overwrite — who changed what,
+   and when, stays on the visit. visit.prescription is kept as the rendered
+   text, because the FHIR bundle, the patient's own record and the AI's
+   follow-up context all read it. */
+const RX_FIELDS = { drug: 120, dose: 60, freq: 60, duration: 60, notes: 200 };
+
+function cleanRxItems(items) {
+  return (Array.isArray(items) ? items : []).slice(0, 30).map((it) => {
+    const o = {};
+    for (const [k, max] of Object.entries(RX_FIELDS)) o[k] = String((it && it[k]) || "").replace(/\s+/g, " ").trim().slice(0, max);
+    return o;
+  }).filter((it) => it.drug);
+}
+
+// Who wrote and approved each version, by name — the console shows people, not ids.
+function rxNames(visit) {
+  const ids = new Set();
+  for (const h of visit.rxHistory || []) { if (h.by) ids.add(h.by); if (h.approvedBy) ids.add(h.approvedBy); }
+  if (visit.aiTreatment) {
+    if (visit.aiTreatment.by) ids.add(visit.aiTreatment.by);
+    for (const o of visit.aiTreatment.options || []) if (o.decidedBy) ids.add(o.decidedBy);
+  }
+  const out = {};
+  for (const i of ids) out[i] = clinicianName(i) || "clinician";
+  return out;
+}
+
+function rxText(items, advice) {
+  const lines = items.map((it, i) =>
+    (i + 1) + ". " + [it.drug, it.dose, it.freq, it.duration].filter(Boolean).join(" — ") + (it.notes ? " (" + it.notes + ")" : ""));
+  if (advice) lines.push("Advice: " + advice);
+  return lines.join("\n");
+}
+
+// What changed between two versions, by medicine name.
+function rxDiff(before, after) {
+  const key = (it) => it.drug.toLowerCase();
+  const b = new Map((before || []).map((it) => [key(it), it]));
+  const a = new Map((after || []).map((it) => [key(it), it]));
+  const out = { added: [], removed: [], changed: [] };
+  for (const [k, it] of a) {
+    if (!b.has(k)) { out.added.push(it.drug); continue; }
+    const o = b.get(k), diffs = [];
+    for (const f of ["dose", "freq", "duration", "notes"]) if ((o[f] || "") !== (it[f] || "")) diffs.push(f + ": " + (o[f] || "—") + " → " + (it[f] || "—"));
+    if (diffs.length) out.changed.push({ drug: it.drug, changes: diffs });
+  }
+  for (const [k, it] of b) if (!a.has(k)) out.removed.push(it.drug);
+  return out;
+}
+
+// A visit written before structured prescriptions: one line per item.
+function legacyRxItems(text) {
+  return String(text || "").split(/\n|;/).map((l) => l.replace(/^\s*\d+[.)]\s*/, "").trim())
+    .filter((l) => l && !/^advice\s*:/i.test(l)).map((l) => ({ drug: l.slice(0, 120), dose: "", freq: "", duration: "", notes: "" }));
+}
+const rxItemsOf = (v) => (v.rx && v.rx.items) ? v.rx.items : legacyRxItems(v.prescription);
+
+/* ── the continuous record ──
+   Built fresh from every visit the patient has had, so it can never drift
+   from what the visits say. Each fact carries every place it was seen —
+   the kiosk interview, a clinician's diagnosis, a prescription, a scanned
+   paper — and a clinician's correction is stored as an edit on top, never by
+   rewriting the visit it came from. Removing a wrong allergy hides it from
+   the checks; the original statement and who removed it stay visible. */
+const NONE_FACT = /^\s*(no|nil|none|nkda|not known|nothing|no known( drug)? allergies?|n\/a|-)\b\.?\s*$|^\s*no known/i;
+
+function splitFacts(text) {
+  const t = String(text || "").trim();
+  if (!t) return [];
+  const parts = /[;\n]/.test(t) ? t.split(/[;\n]+/) : t.split(/,|\band\b/);
+  return parts.map((x) => x.trim().replace(/\.$/, "")).filter((x) => x.length > 1);
+}
+function factKey(type, value) {
+  if (type === "medication") {
+    const ag = findAgents(value)[0];
+    if (ag) return "medication:" + ag.id + ":" + ag.matched;
+  }
+  return type + ":" + String(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").slice(0, 4).join(" ");
+}
+const visitDate = (v) => v.assessedAt || v.submittedAt || v.startedAt || v.createdAt || "";
+const shortDate = (iso) => { try { return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); } catch { return ""; } };
+const clinicianName = (cid) => { const c = store.clinicians.find((x) => x.id === cid); return c ? c.name : null; };
+
+function patientRecord(patientId, opts = {}) {
+  const patient = store.patients.find((p) => p.id === patientId);
+  if (!patient) return null;
+  const visits = store.visits
+    .filter((v) => v.patientId === patientId && v.status !== "IN_PROGRESS" && !v.consentWithdrawnAt)
+    .sort((a, b) => String(visitDate(a)).localeCompare(String(visitDate(b))));
+
+  const facts = new Map();
+  const noneSaid = [];   // "no known allergies", with where it was said
+  const add = (type, value, source) => {
+    value = String(value || "").trim();
+    if (!value) return;
+    if (type === "allergy" && NONE_FACT.test(value)) { noneSaid.push(source); return; }
+    const key = factKey(type, value);
+    if (!facts.has(key)) facts.set(key, { key, type, value, sources: [], status: "active" });
+    const f = facts.get(key);
+    f.value = value;                 // the latest wording wins; every source is kept
+    f.sources.push(source);
+  };
+
+  for (const v of visits) {
+    const sm = v.summary || {};
+    const when = visitDate(v), d = shortDate(when);
+    const intake = { kind: "intake", visitId: v.id, date: when,
+      label: "Told the kiosk · " + d + (v.historyVerified ? " · " + v.historyVerified + " by " + (clinicianName(v.verifiedBy) || "clinician") : "") };
+    for (const x of splitFacts(sm.allergies)) add("allergy", x, intake);
+    for (const x of splitFacts(sm.pastHistory)) add("condition", x, intake);
+    for (const x of splitFacts(sm.medications)) add("medication", x, intake);
+    if (v.diagnosis) for (const dx of String(v.diagnosis).split(/[;\n]+/).map((x) => x.trim()).filter(Boolean)) add("condition", dx, { kind: "clinician", visitId: v.id, date: when,
+      label: "Diagnosed · " + d + " · " + (clinicianName(v.clinicianId) || "clinician") + (v.icd10 ? " · ICD-10 " + v.icd10 : "") });
+    const prescribed = v.status === "ASSESSED" || (v.rx && v.rx.approvedAt);
+    if (prescribed) for (const it of rxItemsOf(v)) add("medication", [it.drug, it.dose].filter(Boolean).join(" "), { kind: "prescription",
+      visitId: v.id, date: when, label: "Prescribed · " + d + " · " + (clinicianName((v.rx && v.rx.approvedBy) || v.clinicianId) || "clinician"),
+      detail: [it.freq, it.duration].filter(Boolean).join(", ") || null });
+    for (const doc of chronological(store.documents.filter((x) => x.visitId === v.id))) {
+      const ex = doc.extracted || {};
+      if (!/prescription|medicine_strip/.test(ex.docType || "")) continue;
+      for (const x of ex.findings || []) add("medication", x, { kind: "document", visitId: v.id, docId: doc.id, date: doc.docDate || when,
+        label: (doc.label || "Scanned document") + " · read by AI" });
+    }
+  }
+
+  // Clinician corrections, applied in order on top of what the visits say.
+  for (const e of patient.recordEdits || []) {
+    const by = clinicianName(e.by) || "clinician";
+    if (e.action === "add") {
+      const key = factKey(e.type, e.value);
+      if (!facts.has(key)) facts.set(key, { key, type: e.type, value: e.value, sources: [], status: "active" });
+      facts.get(key).sources.push({ kind: "correction", date: e.at, label: "Added by " + by + " · " + shortDate(e.at), note: e.note || null });
+      continue;
+    }
+    const f = facts.get(e.key);
+    if (!f) continue;
+    if (e.action === "remove") Object.assign(f, { status: "removed", removed: { by, at: e.at, note: e.note || null } });
+    if (e.action === "restore") { f.status = "active"; delete f.removed; }
+    if (e.action === "confirm") f.confirmed = { by, at: e.at };
+    if (e.action === "edit" && e.value) {
+      f.edited = { from: f.value, by, at: e.at, note: e.note || null };
+      f.value = e.value;
+      f.sources.push({ kind: "correction", date: e.at, label: "Corrected by " + by + " · " + shortDate(e.at), note: e.note || null });
+    }
+  }
+
+  const latest = visits[visits.length - 1];
+  const list = [...facts.values()].map((f) => {
+    const dates = f.sources.map((s) => s.date).filter(Boolean).sort();
+    return Object.assign(f, { firstSeen: dates[0] || null, lastSeen: dates[dates.length - 1] || null,
+      current: f.type !== "medication" || f.sources.some((s) => latest && s.visitId === latest.id) });
+  });
+  const of = (type) => list.filter((f) => f.type === type).sort((a, b) => String(b.lastSeen).localeCompare(String(a.lastSeen)));
+
+  const timeline = visits.slice().reverse().map((v) => ({
+    id: v.id, token: v.token, date: visitDate(v), status: v.status, visitType: v.visitType,
+    department: v.department ? deptLabel(v.department) : null,
+    complaint: (v.summary && v.summary.chiefComplaint) || null,
+    diagnosis: v.diagnosis || null, icd10: v.icd10 || null,
+    clinician: clinicianName(v.clinicianId),
+    rx: rxItemsOf(v), rxApproved: !!(v.rx && v.rx.approvedAt) || v.status === "ASSESSED",
+    rxVersions: (v.rxHistory || []).length,
+    documents: store.documents.filter((d) => d.visitId === v.id).map((d) => d.label || "Document"),
+    current: opts.visitId === v.id,
+  }));
+
+  return {
+    patientId, allergies: of("allergy"), conditions: of("condition"), medications: of("medication"),
+    noAllergiesSaid: noneSaid, timeline,
+    sinceLast: opts.visitId ? sinceLastVisit(visits, opts.visitId, of) : null,
+  };
+}
+
+/* What a clinician should know has moved since this patient was last seen:
+   medicines prescribed then and not mentioned now, new ones, doses that
+   differ, an allergy on file that today's answers contradict. */
+function sinceLastVisit(visits, visitId, of) {
+  const cur = visits.find((v) => v.id === visitId);
+  if (!cur) return null;
+  const prev = visits.filter((v) => v.id !== visitId && v.status === "ASSESSED" &&
+    String(visitDate(v)) <= String(visitDate(cur))).pop();
+  if (!prev) return { previous: null, items: [] };
+  const items = [];
+  const days = Math.round((new Date(visitDate(cur)) - new Date(visitDate(prev))) / 86400000);
+
+  const ident = (txt) => { const a = findAgents(txt)[0]; return a ? a.id + ":" + a.matched : String(txt).toLowerCase().split(/\s+/)[0]; };
+  const mg = (txt) => (String(txt).match(/(\d+(?:\.\d+)?)\s*(mg|mcg|g|iu|units?|ml)\b/i) || [])[0] || null;
+  const before = rxItemsOf(prev).map((it) => ({ name: it.drug, dose: mg(it.drug + " " + it.dose), id: ident(it.drug) }));
+  // Today's prescription first: where it and the patient's own account differ, it is the newer word.
+  const nowList = rxItemsOf(cur).map((it) => it.drug + " " + it.dose).concat(splitFacts((cur.summary || {}).medications))
+    .map((t) => ({ name: t, dose: mg(t), id: ident(t) }));
+  for (const b of before) {
+    const n = nowList.find((x) => x.id === b.id);
+    if (!n) items.push({ kind: "stopped", severity: "moderate", text: b.name + " — prescribed last time, not mentioned today. Stopped, or just not said?" });
+    else if (b.dose && n.dose && b.dose.replace(/\s/g, "").toLowerCase() !== n.dose.replace(/\s/g, "").toLowerCase())
+      items.push({ kind: "dose", severity: "moderate", text: b.name.split(/\s/)[0] + " — " + b.dose + " last time, " + n.dose + " now." });
+  }
+  const seenNew = new Set();
+  for (const n of nowList) if (!before.some((b) => b.id === n.id) && !seenNew.has(n.id) && seenNew.add(n.id))
+    items.push({ kind: "new", severity: "low", text: n.name + " — not on last visit's prescription." });
+
+  const allergies = of("allergy").filter((f) => f.status === "active");
+  const curNone = splitFacts((cur.summary || {}).allergies).some((x) => NONE_FACT.test(x));
+  for (const a of allergies) {
+    const onlyNow = a.sources.every((s) => s.visitId === cur.id);
+    const earlier = a.sources.some((s) => s.visitId && s.visitId !== cur.id);
+    if (onlyNow) items.push({ kind: "allergy-new", severity: "high", text: "New allergy reported today: " + a.value + "." });
+    else if (earlier && curNone) items.push({ kind: "allergy-conflict", severity: "high",
+      text: "Earlier record lists an allergy to " + a.value + "; today the patient said no known allergies. Confirm which is right." });
+  }
+  const docsSince = store.documents.filter((d) => d.visitId === cur.id).length;
+  if (docsSince) items.push({ kind: "documents", severity: "low", text: docsSince + " new document(s) brought today." });
+
+  return {
+    previous: { id: prev.id, date: visitDate(prev), days, diagnosis: prev.diagnosis || null,
+      clinician: clinicianName(prev.clinicianId), token: prev.token },
+    aiNote: (cur.summary && cur.summary.changeSinceLastVisit) || null,
+    items,
+  };
+}
+
+/* Prescription safety for a visit: the existing interaction pairs, plus
+   allergies, duplicates and contraindications against the whole record. */
+function safetyFor(visit, items) {
+  const rec = patientRecord(visit.patientId, { visitId: visit.id }) || { allergies: [], conditions: [], medications: [] };
+  const active = (l) => l.filter((f) => f.status === "active");
+  const src = (f) => ({ label: f.sources.map((s) => s.label).slice(-2).join("; ") });
+  // Medicines the patient takes — not counting this visit's own prescription.
+  const current = active(rec.medications).filter((f) => f.current &&
+    f.sources.some((s) => !(s.kind === "prescription" && s.visitId === visit.id)));
+  const out = checkSafety({
+    items,
+    allergies: active(rec.allergies).map((f) => ({ value: f.value, source: src(f) })),
+    conditions: active(rec.conditions).map((f) => ({ value: f.value, source: src(f) })),
+    current: current.map((f) => ({ value: f.value, source: src(f) })),
+  });
+  out.interactions = interactionsFor(Object.assign({}, visit, { prescription: rxText(items, "") }));
+  out.checkedAt = now();
+  return out;
+}
+
 const { buildBundle } = require("./fhir");
 const aiOn = () => AI.on;
 const askAI = AI.ask;
 const readDocumentAI = AI.readDocument;
 const parseJson = AI.parseJson;
+
+// ─────────────────────────────────────────── the patient's AI health summary
+
+/* What the patient may read after the interview, on request: how urgent it
+   looks, the conditions it could be, which specialist to see, the tests a
+   doctor is likely to want, what to eat and avoid, and medicines.
+
+   It is prepared right after submission so it is ready when asked for, and
+   built again on demand if that background run did not finish (a serverless
+   host may freeze the function once the token is returned).
+
+   The model writes it; these rules decide what is allowed through, and they
+   do not trust the model to have followed its instructions:
+   - an emergency (a rule-raised red flag, or the model's own "emergency")
+     gets no medicines at all — only "go now";
+   - only a short list of over-the-counter medicines may carry a dose; any
+     other medicine is shown as "needs a doctor's prescription", without one;
+   - antibiotics, steroids and sedatives are never offered to the patient;
+   - anything that clashes with an allergy, a condition or a current
+     medicine on the patient's record is moved to "do not take", with why;
+   - children, pregnancy: no doses — a doctor sets them. */
+const OTC_CLASSES = { paracetamol: 1, ors: 1, antihistamine: 1, antacid: 1, vitamin: 1 };
+const NEVER_TO_PATIENT = /antibiotic|amoxi|augmentin|azithro|cipro|oflox|levoflox|doxy|cef|metronid|cotrimox|septran|steroid|predniso|dexameth|methylpred|deflazacort|alprazolam|clonazepam|diazepam|lorazepam|zolpidem|tramadol|codeine|morphine|insulin|warfarin/i;
+const REPORT_LANG_OK = (l) => !!LANG_NAMES[l];
+
+function cleanReport(raw) {
+  const str = (x, n) => String(x == null ? "" : x).replace(/\s+/g, " ").trim().slice(0, n);
+  const arr = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
+  const urg = ["emergency", "soon", "routine"].includes(raw && raw.urgency) ? raw.urgency : "soon";
+  return {
+    urgency: urg,
+    urgencyText: str(raw && raw.urgencyText, 300),
+    summary: str(raw && raw.summary, 600),
+    conditions: arr(raw && raw.conditions, 4).map((c) => ({
+      name: str(c.name, 120), nameEn: str(c.nameEn || c.name, 120),
+      likelihood: ["more likely", "possible", "less likely"].includes(c.likelihood) ? c.likelihood : "possible",
+      why: str(c.why, 300),
+    })).filter((c) => c.name),
+    specialist: raw && raw.specialist ? { name: str(raw.specialist.name, 80), nameEn: str(raw.specialist.nameEn || raw.specialist.name, 80),
+      why: str(raw.specialist.why, 240) } : null,
+    tests: arr(raw && raw.tests, 8).map((t) => ({ name: str(t.name, 100), why: str(t.why, 200) })).filter((t) => t.name),
+    eat: arr(raw && raw.eat, 8).map((x) => str(x, 160)).filter(Boolean),
+    avoidFood: arr(raw && raw.avoidFood, 8).map((x) => str(x, 160)).filter(Boolean),
+    lifestyle: arr(raw && raw.lifestyle, 6).map((x) => str(x, 200)).filter(Boolean),
+    medicines: arr(raw && raw.medicines, 6).map((m) => ({
+      name: str(m.name, 80), use: str(m.use, 200), dose: str(m.dose, 80), howOften: str(m.howOften, 80),
+      howLong: str(m.howLong, 60), caution: str(m.caution, 240),
+    })).filter((m) => m.name),
+    supplies: arr(raw && raw.supplies, 6).map((x) => ({ name: str(x.name, 80), use: str(x.use, 160) })).filter((x) => x.name),
+    avoidMedicines: arr(raw && raw.avoidMedicines, 6).map((m) => ({ name: str(m.name, 80), why: str(m.why, 200) })).filter((m) => m.name),
+    warningSigns: arr(raw && raw.warningSigns, 6).map((x) => str(x, 200)).filter(Boolean),
+  };
+}
+
+// The guardrails above, applied after the model has answered.
+function guardReport(rep, visit, patient) {
+  const notes = [];
+  const sm = visit.summary || {};
+  const text = JSON.stringify(visit.answers || []) + " " + (sm.pastHistory || "") + " " + (sm.hpi || "");
+  const pregnant = patient.sex !== "M" && /pregnan|garbh|गर्भ/i.test(text);
+  const child = patient.ageYears && patient.ageYears < 12;
+  if (visit.redFlag) rep.urgency = "emergency";
+
+  if (rep.urgency === "emergency") {
+    if (rep.medicines.length) notes.push("emergency: medicines withheld");
+    rep.medicines = [];
+    rep.supplies = [];      // nothing to shop for: the only action is to go now
+    rep.medicinesNote = "emergency";
+    return Object.assign(rep, { guard: notes });
+  }
+
+  const rec = patientRecord(visit.patientId, { visitId: visit.id }) || { allergies: [], conditions: [], medications: [] };
+  const act = (l) => l.filter((f) => f.status === "active");
+  const sf = checkSafety({
+    items: rep.medicines.map((m) => ({ drug: m.name })),
+    allergies: act(rec.allergies).map((f) => ({ value: f.value })),
+    conditions: act(rec.conditions).map((f) => ({ value: f.value })).concat(pregnant ? [{ value: "pregnancy" }] : []),
+    current: act(rec.medications).filter((f) => f.current).map((f) => ({ value: f.value })),
+  });
+  const pairs = checkInteractions([
+    { label: "suggested", text: rep.medicines.map((m) => m.name).join(" ; ") },
+    { label: "current", text: act(rec.medications).filter((f) => f.current).map((f) => f.value).join(" ; ") },
+  ]).filter((x) => x.a.where.join() !== x.b.where.join());
+
+  const kept = [];
+  for (const m of rep.medicines) {
+    const hit = [].concat(sf.allergies, sf.contraindications).find((x) => x.drug === m.name && x.severity !== "low") ||
+      pairs.find((x) => x.severity !== "low" && [x.a.matched, x.b.matched].some((n) => m.name.toLowerCase().includes(n.split(" / ")[0])));
+    if (hit) {
+      rep.avoidMedicines.push({ name: m.name, why: hit.note, fromRecord: true });
+      notes.push("moved to avoid: " + m.name);
+      continue;
+    }
+    if (NEVER_TO_PATIENT.test(m.name)) { notes.push("withheld: " + m.name); continue; }
+    const ag = findAgents(m.name);
+    const otc = ag.length && ag.every((a) => OTC_CLASSES[a.cls]);
+    m.kind = otc ? "otc" : "rx";
+    if (!otc || child || pregnant) {
+      if (m.dose || m.howOften) notes.push("dose removed: " + m.name);
+      m.dose = ""; m.howOften = ""; m.howLong = "";
+      m.needsDoctor = child ? "child" : pregnant ? "pregnancy" : "prescription";
+    }
+    const dup = sf.duplicates.find((x) => x.drugs[0] === m.name && x.where === "already taking");
+    if (dup) m.caution = [m.caution, "You may already be taking this (" + dup.drugs[1] + ") — do not double up."].filter(Boolean).join(" ");
+    kept.push(m);
+  }
+  rep.medicines = kept;
+  if (pregnant) rep.medicinesNote = "pregnancy";
+  else if (child) rep.medicinesNote = "child";
+  return Object.assign(rep, { guard: notes });
+}
+
+/* Which of this hospital's departments the AI's "see a …" names, so the map
+   search looks for that specialist rather than the department the kiosk
+   happened to route to. Unmatched → the routed department stands. */
+const SPECIALIST_WORDS = [
+  [/ortho|bone|joint/i, "ORTHOPAEDICS"], [/cardi|heart/i, "CARDIOLOGY"], [/ophthal|eye/i, "OPHTHALMOLOGY"],
+  [/derma|skin/i, "DERMATOLOGY"], [/\bent\b|ear|nose|throat|otolaryng/i, "ENT"], [/dent|teeth|tooth/i, "DENTISTRY"],
+  [/paediat|pediat|child/i, "PAEDIATRICS"], [/gyn|obstet|women/i, "GYNAECOLOGY"], [/neuro|brain/i, "NEUROLOGY"],
+  [/psychiat|mental/i, "PSYCHIATRY"], [/pulmo|chest|lung|respir/i, "PULMONOLOGY"], [/gastro|stomach|liver|digest/i, "GASTROENTEROLOGY"],
+  [/surg/i, "GENERAL_SURGERY"], [/panchakarma/i, "PANCHAKARMA"], [/ayur|vaidya|kayachikitsa/i, "KAYACHIKITSA"],
+  [/general|physician|medicine|family/i, "GENERAL_MEDICINE"],
+];
+function specialistDept(spec) {
+  const name = spec && (spec.nameEn || spec.name);
+  if (!name) return null;
+  const hit = SPECIALIST_WORDS.find(([re]) => re.test(name));
+  return hit && DEPT_BY_ID[hit[1]] ? hit[1] : null;
+}
+
+// Without the AI: assembled by rule from what the intake already decided.
+function offlineReport(visit) {
+  const sm = visit.summary || {};
+  return {
+    urgency: visit.redFlag ? "emergency" : "soon", urgencyText: "", summary: "",
+    conditions: (sm.differentials || []).slice(0, 3).map((d) => ({ name: d.condition, nameEn: d.condition, likelihood: "possible", why: d.why || "" })),
+    specialist: visit.department ? { name: deptLabel(visit.department), why: "" } : null,
+    tests: (sm.investigations || []).slice(0, 6).map((t) => ({ name: t, why: "" })),
+    eat: [], avoidFood: [], lifestyle: [], medicines: [], supplies: [], avoidMedicines: [], warningSigns: [],
+  };
+}
+
+async function buildPatientReport(visit) {
+  const patient = store.patients.find((p) => p.id === visit.patientId) || {};
+  const sm = visit.summary || {};
+  const language = REPORT_LANG_OK(visit.language) ? visit.language : "hi";
+  const langName = LANG_NAMES[language];
+  const rec = patientRecord(visit.patientId, { visitId: visit.id }) || { allergies: [], conditions: [], medications: [] };
+  const act = (l) => l.filter((f) => f.status === "active").map((f) => f.value);
+  const system = SYSTEMS.includes(visit.system) ? visit.system : "AYURVEDIC";
+
+  if (!aiOn()) {
+    const data = guardReport(offlineReport(visit), visit, patient);
+    data.specialistDept = visit.department || null;
+    return { source: "rules", language: "en", data };
+  }
+
+  const text = await askAI([{
+    type: "text",
+    text:
+      "You are writing a health summary for a PATIENT at an Indian hospital, right after they finished a self-service " +
+      "symptom interview and BEFORE any doctor has examined them. It must be honest about uncertainty, practical, and " +
+      "safe for someone who may act on it without asking anyone.\n\n" +
+      `Write every sentence in ${langName}${language === "en" ? "" : " (in its own script, never transliterated)"}, ` +
+      "in simple everyday words a person with little schooling understands. Medicine and test names: give the common " +
+      "English name (as written on Indian packaging), optionally followed by the local name.\n\n" +
+      `Patient: ${patient.ageYears ? patient.ageYears + "-year-old " : ""}${patient.sex === "F" ? "woman" : patient.sex === "M" ? "man" : "person"}. ` +
+      `Prefers ${system === "AYURVEDIC" ? "Ayurvedic" : system === "ALLOPATHIC" ? "allopathic (modern)" : "either Ayurvedic or modern"} treatment.\n` +
+      `Chief complaint: ${sm.chiefComplaint || "not recorded"}\nHistory: ${sm.hpi || sm.narrative || "not recorded"}\n` +
+      (sm.ros ? `Other symptoms asked about: ${sm.ros}\n` : "") +
+      `Red flags raised by the screening rules: ${(sm.redFlags || []).join("; ") || "none"}\n` +
+      `Allergies on record: ${act(rec.allergies).join("; ") || "none known"}\n` +
+      `Conditions on record: ${act(rec.conditions).join("; ") || "none recorded"}\n` +
+      `Medicines they already take: ${rec.medications.filter((f) => f.status === "active" && f.current).map((f) => f.value).join("; ") || "none recorded"}\n` +
+      `Department the hospital routed them to: ${visit.department ? deptLabel(visit.department) : "not yet routed"}\n` +
+      (sm.assessment ? `Clinical assessment drafted for the doctor (context): ${sm.assessment}\n` : "") +
+      "\nRules:\n" +
+      "- Possible conditions are possibilities, never a verdict: rank 2-4 of them with \"more likely\" / \"possible\" / " +
+      "\"less likely\" and one line each on why, from what they said. Never write \"you have\".\n" +
+      "- urgency: \"emergency\" if anything suggests it could be dangerous today (then say exactly what to do now), " +
+      "\"soon\" for within a day or two, \"routine\" otherwise.\n" +
+      "- Medicines: only what is reasonable to take for symptom relief before seeing a doctor, matched to their " +
+      "preference and safe with their allergies, conditions and current medicines. Simple over-the-counter ones with " +
+      "an adult dose; anything stronger, name it as something a doctor may consider and give no dose. NEVER suggest " +
+      "antibiotics, steroids, sleeping pills or painkillers that need a prescription. If no medicine is appropriate, " +
+      "return an empty list.\n" +
+      "- avoidMedicines: common things people buy at a chemist that would be harmful here (e.g. ibuprofen in fever " +
+      "with possible dengue), with why.\n" +
+      "- supplies: up to 4 non-medicine things that genuinely help with THIS problem at home (e.g. a hot-water bag or " +
+      "heating pad, crepe bandage, knee support, ice pack, thermometer, BP monitor, glucometer, ORS sachets, steam " +
+      "inhaler), each with one plain line on how it helps. Empty if nothing fits.\n" +
+      "- Tests: what a doctor is likely to order for these conditions (blood pressure, blood sugar, CBC, ECG, X-ray…), " +
+      "each with one plain line on why.\n" +
+      "- Food: specific Indian foods to eat and to avoid for this problem. Lifestyle: 2-4 practical steps.\n" +
+      "- warningSigns: the symptoms that mean they must go to an emergency department straight away.\n" +
+      "- Never invent a symptom, value or history detail that is not above.\n\n" +
+      'Reply with ONLY a JSON object: {"urgency": "emergency"|"soon"|"routine", "urgencyText": string, ' +
+      '"summary": 2 sentences, "conditions": array of {"name": string, "nameEn": English name, "likelihood": "more likely"|"possible"|"less likely", "why": string}, ' +
+      '"specialist": {"name": string, "nameEn": the specialty in English, e.g. "Orthopaedics", "why": string}, "tests": array of {"name": string, "why": string}, ' +
+      '"eat": array of strings, "avoidFood": array of strings, "lifestyle": array of strings, ' +
+      '"medicines": array of {"name": string, "use": string, "dose": string, "howOften": string, "howLong": string, "caution": string}, ' +
+      '"supplies": array of {"name": product name in English as a shop lists it, "use": string}, ' +
+      '"avoidMedicines": array of {"name": string, "why": string}, "warningSigns": array of strings}',
+  }], 2400);
+  const data = guardReport(cleanReport(parseJson(text)), visit, patient);
+  data.specialistDept = specialistDept(data.specialist) || visit.department || null;
+  return { source: "ai", language, chain: AI.chain.slice(0, 1), data };
+}
+
+const reportJobs = new Map();   // visitId -> promise, so one visit is never built twice at once
+function preparePatientReport(visit) {
+  if (reportJobs.has(visit.id)) return reportJobs.get(visit.id);
+  visit.patientReport = { status: "pending", startedAt: now() };
+  const job = buildPatientReport(visit).then((r) => {
+    visit.patientReport = Object.assign({ status: "ready", at: now() }, r);
+    logEvent("patient_report_ready", { visitId: visit.id, source: r.source, urgency: r.data.urgency,
+      medicines: r.data.medicines.length, guard: r.data.guard });
+  }).catch((e) => {
+    visit.patientReport = { status: "failed", at: now(), error: String(e.message).slice(0, 200) };
+    logEvent("patient_report_failed", { visitId: visit.id, error: String(e.message).slice(0, 200) });
+  }).finally(() => { reportJobs.delete(visit.id); save(); });
+  reportJobs.set(visit.id, job);
+  return job;
+}
+
+// ─────────────────────────────────────────── nearby hospitals and clinics
+
+/* Real places only — OpenStreetMap, through its Nominatim search. No key and
+   no cost, which suits a project; its usage policy allows about one request
+   a second with an identifying User-Agent, so queries are spaced and every
+   answer is cached. Specialty is shown only when OpenStreetMap records it
+   or the place's own name says so; otherwise the listing says "call to
+   confirm" rather than implying a specialist is there. */
+const NOMINATIM = String(process.env.NOMINATIM_URL || "https://nominatim.openstreetmap.org").replace(/\/+$/, "");
+const NOMINATIM_UA = "MediKiosk/1.0 (open-source portfolio project" + (process.env.NOMINATIM_EMAIL ? "; " + process.env.NOMINATIM_EMAIL : "") + ")";
+const SPECIALTY_SEARCH = {
+  CARDIOLOGY: { terms: ["heart hospital", "cardiac"], re: /heart|cardi/i, osm: /cardio/ },
+  ORTHOPAEDICS: { terms: ["orthopaedic", "bone and joint"], re: /ortho|bone|joint|spine/i, osm: /ortho/ },
+  OPHTHALMOLOGY: { terms: ["eye hospital"], re: /eye|netra|vision|ophthal/i, osm: /ophthal/ },
+  ENT: { terms: ["ENT clinic"], re: /\bent\b|ear|nose|throat/i, osm: /otolaryng/ },
+  DENTISTRY: { terms: ["dental clinic", "dentist"], re: /dent|teeth|tooth/i, osm: /dent/ },
+  DERMATOLOGY: { terms: ["skin clinic"], re: /skin|derma/i, osm: /derma/ },
+  GYNAECOLOGY: { terms: ["maternity hospital", "gynaecologist"], re: /matern|women|gyn|mother/i, osm: /gyn|obstet/ },
+  PRASUTI: { terms: ["maternity hospital"], re: /matern|women|gyn|mother/i, osm: /gyn|obstet/ },
+  PAEDIATRICS: { terms: ["children hospital"], re: /child|kids|paediat|pediat|shishu|bal /i, osm: /paediat|pediat/ },
+  KAUMARBHRITYA: { terms: ["children hospital"], re: /child|kids|paediat|pediat|shishu/i, osm: /paediat|pediat/ },
+  NEUROLOGY: { terms: ["neuro hospital"], re: /neuro|brain/i, osm: /neuro/ },
+  PSYCHIATRY: { terms: ["psychiatric hospital", "mental health"], re: /psych|mental|mind/i, osm: /psych/ },
+  MANOVIGYAN: { terms: ["mental health"], re: /psych|mental|mind/i, osm: /psych/ },
+  PULMONOLOGY: { terms: ["chest hospital"], re: /chest|lung|pulmo|tb |tuberc/i, osm: /pulmo/ },
+  GASTROENTEROLOGY: { terms: ["gastro hospital"], re: /gastro|liver|digest/i, osm: /gastro/ },
+  KAYACHIKITSA: { terms: ["ayurveda hospital", "ayurvedic clinic"], re: /ayur|vaid|panchakarma/i, osm: /ayurv/ },
+  PANCHAKARMA: { terms: ["panchakarma", "ayurveda hospital"], re: /ayur|panchakarma/i, osm: /ayurv/ },
+  SHALYA: { terms: ["ayurveda hospital"], re: /ayur/i, osm: /ayurv/ },
+  SHALAKYA: { terms: ["ayurveda hospital", "eye hospital"], re: /ayur|eye/i, osm: /ayurv|ophthal/ },
+  SWASTHAVRITTA: { terms: ["ayurveda", "yoga centre"], re: /ayur|yoga/i, osm: /ayurv/ },
+};
+const nearbyCache = new Map();   // key -> { at, value }
+let lastNominatim = 0;
+
+async function nominatim(params) {
+  const wait = lastNominatim + 1100 - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastNominatim = Date.now();
+  const r = await fetch(NOMINATIM + "/search?" + new URLSearchParams(Object.assign({ format: "jsonv2", countrycodes: "in" }, params)), {
+    headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en" }, signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("map search " + r.status);
+  return r.json();
+}
+
+const haversineKm = (a, b) => {
+  const rad = (x) => x * Math.PI / 180, R = 6371;
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+async function findNearby({ lat, lon, pin, department, emergency, pharmacy }) {
+  let where = null, placeLabel = null;
+  if (Number.isFinite(lat) && Number.isFinite(lon)) where = { lat, lon };
+  else if (/^\d{6}$/.test(String(pin || ""))) {
+    const hit = (await nominatim({ postalcode: pin, limit: 1 }))[0];
+    if (!hit) throw Object.assign(new Error("We could not find that PIN code."), { status: 404 });
+    where = { lat: Number(hit.lat), lon: Number(hit.lon) };
+    placeLabel = String(hit.display_name || "").split(",").slice(0, 3).join(",");
+  } else throw Object.assign(new Error("Share your location or enter a 6-digit PIN code."), { status: 400 });
+
+  const spec = SPECIALTY_SEARCH[department] || null;
+  const key = [where.lat.toFixed(2), where.lon.toFixed(2), pharmacy ? "PHARMACY" : department || "-", emergency ? "E" : "-"].join("|");
+  const cached = nearbyCache.get(key);
+  if (cached && Date.now() - cached.at < 24 * 3600 * 1000) return Object.assign({}, cached.value, { cached: true });
+
+  const terms = pharmacy ? ["Jan Aushadhi", "pharmacy", "chemist"]
+    : emergency ? ["hospital"] : (spec ? spec.terms : []).concat(["hospital", "clinic"]);
+  const found = new Map();
+  for (const span of [0.09, 0.25]) {          // about 10 km, then about 28 km if that was thin
+    for (const q of terms) {
+      let rows = [];
+      try {
+        rows = await nominatim({ q, limit: 20, extratags: 1, bounded: 1,
+          viewbox: [where.lon - span, where.lat + span, where.lon + span, where.lat - span].join(",") });
+      } catch (e) { continue; }
+      for (const x of rows) {
+        if (!x.name || found.has(x.osm_type + x.osm_id)) continue;
+        if (!["amenity", "healthcare"].includes(x.category)) continue;
+        if (!(pharmacy ? /pharmacy|chemist/ : /hospital|clinic|doctors|dentist/).test(x.type)) continue;
+        const tags = x.extratags || {};
+        const specTag = String(tags["healthcare:speciality"] || "").toLowerCase();
+        const point = { lat: Number(x.lat), lon: Number(x.lon) };
+        found.set(x.osm_type + x.osm_id, {
+          name: x.name, kind: x.type,
+          address: String(x.display_name || "").split(",").slice(1, 4).join(",").trim(),
+          lat: point.lat, lon: point.lon,
+          km: Math.round(haversineKm(where, point) * 10) / 10,
+          phone: tags.phone || tags["contact:phone"] || null,
+          website: tags.website || tags["contact:website"] || null,
+          emergency: tags.emergency === "yes" ? true : tags.emergency === "no" ? false : null,
+          janAushadhi: /jan ?aushadh|janaushadh|pmbjk|bhartiya jan/i.test(x.name),
+          speciality: specTag || null,
+          specialtyMatch: spec ? (spec.osm.test(specTag) ? "listed" : spec.re.test(x.name) ? "name" : null) : null,
+          directions: "https://www.google.com/maps/dir/?api=1&destination=" + point.lat + "," + point.lon,
+          osm: "https://www.openstreetmap.org/" + x.osm_type + "/" + x.osm_id,
+        });
+      }
+    }
+    if (found.size >= 6) break;
+  }
+  let places = [...found.values()];
+  if (emergency) places = places.filter((p) => p.kind === "hospital" && p.emergency !== false);
+  places.sort((a, b) => (pharmacy ? (b.janAushadhi ? 1 : 0) - (a.janAushadhi ? 1 : 0) : 0) ||
+    (b.specialtyMatch ? 1 : 0) - (a.specialtyMatch ? 1 : 0) || a.km - b.km);
+  const value = { where, placeLabel, department: department || null, departmentLabel: department ? deptLabel(department) : null,
+    pharmacy: !!pharmacy, specialtySearch: !!spec && !emergency && !pharmacy, places: places.slice(0, 10), source: "OpenStreetMap contributors", at: now() };
+  nearbyCache.set(key, { at: Date.now(), value });
+  if (nearbyCache.size > 500) nearbyCache.delete(nearbyCache.keys().next().value);
+  return value;
+}
+
+// ─────────────────────────────────────────── AI treatment options
+
+/* The model proposes; the physician disposes. Options are generated only
+   when a clinician asks, against a working diagnosis the clinician names (or,
+   failing that, the AI's own top differential — labelled as such), and they
+   live in their own field, visit.aiTreatment. Nothing here touches the
+   diagnosis or the prescription. "Use this" copies an option into the
+   prescription as a DRAFT, records who adopted it, and the prescription
+   still has to be approved like any other. Every option is run through the
+   same safety check as a hand-written prescription before it is shown. */
+const TX_SYSTEM = {
+  AYURVEDIC: "The patient chose AYURVEDIC treatment. Propose Ayurvedic management: classical formulations available in India " +
+    "(e.g. as listed in the Ayurvedic Pharmacopoeia / AFI), with the usual adult dose, anupana and duration, plus ahara-vihara. " +
+    "Name an allopathic step only where safety requires it (an emergency, a dangerous value).",
+  ALLOPATHIC: "The patient chose ALLOPATHIC treatment. Propose evidence-based modern management with generic drug names " +
+    "available in India, following common Indian practice (e.g. ICMR / national programme guidance where one exists).",
+  BOTH: "The patient is open to BOTH systems. Propose modern management first; an Ayurvedic adjunct may be offered as a " +
+    "separate option where there is reasonable support for it and no interaction with the modern drugs.",
+};
+
+function cleanTx(raw) {
+  const str = (x, n) => String(x == null ? "" : x).replace(/\s+/g, " ").trim().slice(0, n);
+  const list = (x, n, m) => (Array.isArray(x) ? x : []).map((y) => str(y, m)).filter(Boolean).slice(0, n);
+  const opts = (Array.isArray(raw && raw.options) ? raw.options : []).slice(0, 3).map((o, i) => ({
+    id: "opt" + (i + 1) + "-" + crypto.randomBytes(3).toString("hex"),
+    title: str(o.title, 120) || "Option " + (i + 1),
+    approach: str(o.approach, 40) || null,
+    medicines: cleanRxItems(o.medicines),
+    nonDrug: list(o.nonDrug, 6, 200),
+    rationale: str(o.rationale, 600),
+    cautions: list(o.cautions, 6, 240),
+    monitoring: str(o.monitoring, 300) || null,
+    escalate: str(o.escalate, 300) || null,
+    status: "proposed",
+  })).filter((o) => o.medicines.length || o.nonDrug.length);
+  return {
+    confirmFirst: list(raw && raw.confirmFirst, 5, 200),
+    urgent: !!(raw && raw.urgent),
+    urgentReason: str(raw && raw.urgentReason, 300) || null,
+    options: opts,
+  };
+}
+
+async function buildTreatmentOptions(visit, workingDx, dxSource) {
+  const patient = store.patients.find((p) => p.id === visit.patientId) || {};
+  const sm = visit.summary || {};
+  const rec = patientRecord(visit.patientId, { visitId: visit.id }) || { allergies: [], conditions: [], medications: [], timeline: [] };
+  const act = (l) => l.filter((f) => f.status === "active").map((f) => f.value);
+  const prevRx = (rec.timeline || []).find((t) => t.id !== visit.id && t.rx && t.rx.length);
+  const abnormal = store.documents.filter((d) => d.visitId === visit.id)
+    .flatMap((d) => ((d.extracted && d.extracted.abnormal) || []).map((x) => (d.label || "Document") + ": " + x));
+  const vt = visit.vitals || {};
+  const system = ["AYURVEDIC", "ALLOPATHIC", "BOTH"].includes(visit.system) ? visit.system : "AYURVEDIC";
+
+  const context = [
+    `Patient: ${patient.ageYears ? patient.ageYears + "-year-old " : ""}${patient.sex === "F" ? "woman" : patient.sex === "M" ? "man" : "person"}` +
+      (vt.weightKg || patient.weightKg ? `, ${vt.weightKg || patient.weightKg} kg` : "") + ".",
+    `WORKING DIAGNOSIS (${dxSource === "clinician" ? "named by the treating physician" : "the AI's own top differential — NOT confirmed by the physician"}): ${workingDx}`,
+    `Chief complaint: ${sm.chiefComplaint || "not recorded"}`,
+    sm.hpi ? `History: ${sm.hpi}` : "",
+    sm.ros ? `Review of systems: ${sm.ros}` : "",
+    (sm.redFlags || []).length ? `RED FLAGS raised at intake: ${sm.redFlags.join("; ")}` : "Red flags at intake: none.",
+    `Known allergies: ${act(rec.allergies).join("; ") || (rec.noAllergiesSaid.length ? "none known" : "not recorded")}`,
+    `Conditions on record: ${act(rec.conditions).join("; ") || "none recorded"}`,
+    `Medicines the patient currently takes: ${rec.medications.filter((f) => f.status === "active" && f.current).map((f) => f.value).join("; ") || "none recorded"}`,
+    prevRx ? `Previous prescription (${shortDate(prevRx.date)}): ${prevRx.rx.map((x) => [x.drug, x.dose, x.freq].filter(Boolean).join(" ")).join("; ")}` : "",
+    abnormal.length ? `Abnormal values on documents: ${abnormal.join("; ")}` : "",
+    sm.assessment ? `AI intake assessment (for context only): ${sm.assessment}` : "",
+  ].filter(Boolean).join("\n");
+
+  const text = await askAI([{
+    type: "text",
+    text:
+      "You are a clinical decision-support assistant for a physician in an Indian hospital OPD. You SUGGEST treatment " +
+      "options for the physician to consider; the physician decides, edits and prescribes. You never diagnose, and you " +
+      "never address the patient.\n\n" + TX_SYSTEM[system] + "\n\n" + context + "\n\n" +
+      "Rules that matter more than completeness:\n" +
+      "- Give 2 or 3 genuinely different options (e.g. first-line, an alternative for when first-line is unsuitable, a " +
+      "conservative or non-drug-first option). Not three versions of the same thing.\n" +
+      "- RESPECT the allergies, conditions and current medicines above. Do not propose a drug the patient is allergic to " +
+      "or one that is contraindicated by a listed condition. If the best drug is ruled out, say so in cautions.\n" +
+      "- Account for what the patient already takes: continue, adjust or stop it explicitly rather than adding a duplicate.\n" +
+      "- Standard adult doses only, generic names, with frequency and duration. If a dose depends on weight, kidney " +
+      "function or a level not given here, say so in that medicine's notes instead of guessing.\n" +
+      "- No opioids, benzodiazepines or other controlled drugs unless clearly unavoidable, and then say why.\n" +
+      "- If red flags or the history point to an emergency, set urgent to true and make the FIRST option the immediate " +
+      "step (stabilise, refer, investigate now) — not an outpatient prescription.\n" +
+      "- If the working diagnosis is uncertain, list what to confirm before treating in confirmFirst.\n" +
+      "- Never invent a finding, a test value or a history detail that is not in the text above.\n\n" +
+      'Reply with ONLY a JSON object: {"urgent": boolean, "urgentReason": string or null, ' +
+      '"confirmFirst": array of short strings, "options": array of {"title": string, ' +
+      '"approach": "first-line"|"alternative"|"conservative"|"urgent"|"adjunct", ' +
+      '"medicines": array of {"drug": generic name, "dose": string, "freq": string, "duration": string, "notes": string}, ' +
+      '"nonDrug": array of short strings, "rationale": one or two sentences, "cautions": array of short strings, ' +
+      '"monitoring": string, "escalate": string — when to refer or review sooner}}',
+  }], 2200);
+
+  const out = cleanTx(parseJson(text));
+  // The model was told the allergies; this checks it listened.
+  for (const o of out.options) {
+    const sf = safetyFor(visit, o.medicines);
+    o.safety = {
+      allergies: sf.allergies, contraindications: sf.contraindications, interactions: sf.interactions,
+      duplicates: sf.duplicates, unrecognised: sf.unrecognised,
+      high: [].concat(sf.allergies, sf.contraindications, sf.interactions).filter((x) => x.severity === "high").length,
+    };
+  }
+  return out;
+}
+
 let aiCheckCache = null;
 let notifyCheckCache = null;
 
@@ -1707,8 +2402,40 @@ function loadExamples() {
   const ramesh = { id: id(), phone: "9812340023", primaryPhone: "9812340023", name: "Ramesh Yadav", ageYears: 54, sex: "M", language: "hi", abhaNumber: "91-2093-7741-6650", createdAt: now() };
   store.patients.push(kamla, ramesh);
 
+  /* Kamla's previous visit, four months ago — so the continuous record, the
+     "since last visit" panel and the allergy check have something real to
+     work from. Synthetic, like everything this function creates. */
+  const monthsAgo = (n) => new Date(Date.now() - n * 30 * 86400000).toISOString();
+  const firstDoc = store.clinicians.find((c) => c.approved) || {};
+  const prevRx = [
+    { drug: "Metformin", dose: "500 mg", freq: "1-0-1 after food", duration: "90 days", notes: "" },
+    { drug: "Glimepiride", dose: "1 mg", freq: "1-0-0 before breakfast", duration: "90 days", notes: "" },
+    { drug: "Amlodipine", dose: "5 mg", freq: "1-0-0", duration: "90 days", notes: "" },
+  ];
   store.visits.push({
-    id: id(), token: "A-17", patientId: kamla.id, status: "WAITING", visitType: "FIRST", triage: "ROUTINE",
+    id: id(), token: "A-04", patientId: kamla.id, status: "ASSESSED", visitType: "FIRST", triage: "ROUTINE",
+    redFlag: false, example: true, startedAt: monthsAgo(4), submittedAt: monthsAgo(4), assessedAt: monthsAgo(4),
+    clinicianId: firstDoc.id || null, system: "BOTH", department: "GENERAL_MEDICINE", departmentLabel: deptLabel("GENERAL_MEDICINE"),
+    departmentSource: "example", departmentConfidence: "high",
+    consent: { record: true, docs: true, share: true, locker: true }, answers: [],
+    diagnosis: "Type 2 diabetes mellitus, poorly controlled; essential hypertension", icd10: "E11.65, I10",
+    rx: { items: prevRx, advice: "Diabetic diet. Walk 30 minutes daily. HbA1c in 3 months.", version: 1, status: "approved",
+          updatedAt: monthsAgo(4), updatedBy: firstDoc.id || null, approvedAt: monthsAgo(4), approvedBy: firstDoc.id || null },
+    rxHistory: [{ version: 1, at: monthsAgo(4), by: firstDoc.id || null, items: prevRx, advice: "Diabetic diet. Walk 30 minutes daily. HbA1c in 3 months.",
+                  diff: { added: prevRx.map((x) => x.drug), removed: [], changed: [] }, approvedAt: monthsAgo(4), approvedBy: firstDoc.id || null }],
+    prescription: "1. Metformin — 500 mg — 1-0-1 after food — 90 days\n2. Glimepiride — 1 mg — 1-0-0 before breakfast — 90 days\n3. Amlodipine — 5 mg — 1-0-0 — 90 days\nAdvice: Diabetic diet. Walk 30 minutes daily. HbA1c in 3 months.",
+    historyVerified: "accepted", verifiedBy: firstDoc.id || null, verifiedAt: monthsAgo(4),
+    summary: {
+      chiefComplaint: "High sugar readings on a home glucometer, tiredness for two months.",
+      pastHistory: "High blood pressure",
+      medications: "Metformin 500 mg twice daily; Amlodipine 5 mg once daily",
+      allergies: "Sulfa drugs (rash)",
+      generated: "example", redFlags: [], triage: "ROUTINE",
+    },
+  });
+
+  store.visits.push({
+    id: id(), token: "A-17", patientId: kamla.id, status: "WAITING", visitType: "FOLLOW_UP", triage: "ROUTINE",
     redFlag: false, example: true, startedAt: now(), submittedAt: now(),
     system: "AYURVEDIC",
     department: "KAYACHIKITSA", departmentLabel: "Kayachikitsa",
@@ -1770,7 +2497,7 @@ function loadExamples() {
         { label: "X-ray report · 03 Mar 2026", summary: "Bilateral knee radiograph, grade 2 osteoarthritic changes with medial joint space narrowing." },
       ],
       suggestedQuestions: ["Does the morning stiffness last more than 30 minutes?", "Is she taking the analgesics daily, and on an empty stomach?", "Any prior physiotherapy or intra-articular injection?"],
-      changeSinceLastVisit: null,
+      changeSinceLastVisit: "Follow-up after four months. Sugars still high on her home readings; knee pain is new since the last visit and she has been taking over-the-counter painkillers for it.",
       generated: "example",
     },
   });
@@ -2487,6 +3214,117 @@ async function api(req, res, pathname) {
     return ok(res, { interactions: interactionsFor(trial) });
   }
 
+  // ---- the full prescription safety check for a draft, no save
+  m = pathname.match(/^\/api\/visits\/([\w-]+)\/safety$/);
+  if (m && method === "POST") {
+    const doc = doctorOf(req);
+    if (!doc) return bad(res, 401, "Sign in required.");
+    const visit = store.visits.find((v) => v.id === m[1]);
+    if (!visit) return bad(res, 404, "Not found.");
+    if (visit.consentWithdrawnAt) return bad(res, 403, "The patient has withdrawn consent for this visit.");
+    const { items } = await readBody(req);
+    return ok(res, { safety: safetyFor(visit, cleanRxItems(items)) });
+  }
+
+  // ---- the patient's AI health summary, shown only when they ask for it
+  m = pathname.match(/^\/api\/visits\/([\w-]+)\/patient-report$/);
+  if (m && method === "GET") {
+    const pat = patientOf(req), doc = doctorOf(req);
+    if (!pat && !doc) return bad(res, 401, "Your session expired.");
+    const visit = store.visits.find((v) => v.id === m[1]);
+    if (!visit) return bad(res, 404, "Visit not found.");
+    if (!doc && visit.patientId !== pat.pid) return bad(res, 403, "Not yours.");
+    if (!visit.summary) return bad(res, 409, "Finish the questions first.");
+    if (visit.consent && visit.consent.record === false) return bad(res, 403, "You chose not to have your answers recorded, so no summary was made.");
+    const pr = visit.patientReport;
+    const stale = pr && pr.status === "pending" && Date.now() - new Date(pr.startedAt).getTime() > 90000;
+    if (reportJobs.has(visit.id)) await reportJobs.get(visit.id);
+    else if (!pr || pr.status === "failed" || stale) await preparePatientReport(visit);
+    if (!visit.patientReport || visit.patientReport.status !== "ready") {
+      return bad(res, 502, "The health summary could not be prepared just now. Your doctor has all your answers.");
+    }
+    if (pat && !visit.patientReport.viewedAt) {
+      visit.patientReport.viewedAt = now();
+      save();
+      logEvent("patient_report_viewed", { visitId: visit.id });
+    }
+    return ok(res, { report: visit.patientReport, department: visit.department || null,
+      departmentLabel: visit.department ? deptLabel(visit.department) : null, redFlag: !!visit.redFlag });
+  }
+
+  // ---- hospitals and clinics near the patient, for a department
+  if (pathname === "/api/nearby" && method === "GET") {
+    if (rateLimited(req, "nearby", 6, 60000)) return tooMany(res, "map searches");
+    const qs = new URL(req.url, "http://x").searchParams;
+    const num = (k) => { const v = qs.get(k); return v === null || v === "" ? NaN : Number(v); };
+    const lat = num("lat"), lon = num("lon");
+    if ((Number.isFinite(lat) && (lat < 6 || lat > 38)) || (Number.isFinite(lon) && (lon < 68 || lon > 98))) {
+      return bad(res, 400, "That location is outside India.");
+    }
+    const department = String(qs.get("dept") || "").toUpperCase();
+    try {
+      const out = await findNearby({ lat, lon, pin: String(qs.get("pin") || "").trim(),
+        department: DEPT_BY_ID[department] ? department : null, emergency: qs.get("emergency") === "1",
+        pharmacy: qs.get("type") === "pharmacy" });
+      logEvent("nearby_search", { department: out.department, results: out.places.length, by: Number.isFinite(lat) ? "location" : "pin", cached: !!out.cached });
+      return ok(res, out);
+    } catch (e) {
+      return bad(res, e.status || 502, e.status ? e.message : "The map search is not answering right now. Try again in a minute.");
+    }
+  }
+
+  // ---- AI treatment options, on a clinician's request
+  m = pathname.match(/^\/api\/visits\/([\w-]+)\/ai\/treatment$/);
+  if (m && method === "POST") {
+    const doc = doctorOf(req);
+    if (!doc) return bad(res, 401, "Sign in required.");
+    const visit = store.visits.find((v) => v.id === m[1]);
+    if (!visit) return bad(res, 404, "Not found.");
+    if (visit.consentWithdrawnAt) return bad(res, 403, "The patient has withdrawn consent for this visit.");
+    if (!aiOn()) return bad(res, 503, "AI is not set up on this server, so treatment options are not available. Everything else works.");
+    if (rateLimited(req, "aitx", 8, 60000)) return tooMany(res, "treatment requests");
+    const body = await readBody(req);
+    const sm = visit.summary || {};
+    let dx = String(body.diagnosis || "").replace(/\s+/g, " ").trim().slice(0, 300), dxSource = "clinician";
+    if (!dx) {
+      const top = (sm.differentials || [])[0];
+      if (!top || !top.condition) return bad(res, 400, "Enter a working diagnosis first — there is no AI differential to fall back on.");
+      dx = top.condition; dxSource = "ai-differential";
+    }
+    let out;
+    try { out = await buildTreatmentOptions(visit, dx, dxSource); }
+    catch (e) {
+      console.warn("  treatment options failed:", String(e.message).slice(0, 160));
+      logEvent("ai_treatment_failed", { visitId: visit.id, by: doc.cid, error: String(e.message).slice(0, 200) });
+      return bad(res, 502, "The AI service did not return usable options. Try again in a moment.");
+    }
+    const run = Object.assign({ id: id(), at: now(), by: doc.cid, chain: AI.chain.slice(0, 3),
+      basedOn: { diagnosis: dx, source: dxSource } }, out);
+    if (visit.aiTreatment) visit.aiTreatmentHistory = (visit.aiTreatmentHistory || []).concat(visit.aiTreatment).slice(-5);
+    visit.aiTreatment = run;
+    save();
+    logEvent("ai_treatment_suggested", { visitId: visit.id, by: doc.cid, options: run.options.length, urgent: run.urgent,
+      diagnosisSource: dxSource, highCautions: run.options.reduce((n, o) => n + o.safety.high, 0) });
+    return ok(res, { aiTreatment: run, clinicianNames: rxNames(visit) });
+  }
+
+  // ---- adopt or dismiss one AI option. Adopting does NOT prescribe.
+  m = pathname.match(/^\/api\/visits\/([\w-]+)\/ai\/treatment\/decision$/);
+  if (m && method === "POST") {
+    const doc = doctorOf(req);
+    if (!doc) return bad(res, 401, "Sign in required.");
+    const visit = store.visits.find((v) => v.id === m[1]);
+    if (!visit || !visit.aiTreatment) return bad(res, 404, "No AI options on this visit.");
+    const { optionId, decision, note } = await readBody(req);
+    const opt = visit.aiTreatment.options.find((o) => o.id === optionId);
+    if (!opt) return bad(res, 404, "That option is not on this visit.");
+    if (!["adopted", "dismissed", "proposed"].includes(decision)) return bad(res, 400, "Adopt or dismiss.");
+    Object.assign(opt, { status: decision, decidedBy: doc.cid, decidedAt: now(), decisionNote: String(note || "").trim().slice(0, 300) || null });
+    save();
+    logEvent("ai_treatment_" + decision, { visitId: visit.id, by: doc.cid, optionId, title: opt.title, highCautions: opt.safety ? opt.safety.high : 0 });
+    return ok(res, { option: opt, aiTreatment: visit.aiTreatment, clinicianNames: rxNames(visit) });
+  }
+
   // ---- the visit as a FHIR R4 document bundle (what the ABDM push carries)
   m = pathname.match(/^\/api\/visits\/([\w-]+)\/fhir$/);
   if (m && method === "GET") {
@@ -2623,6 +3461,9 @@ async function api(req, res, pathname) {
     if (redFlag && !visit.token.startsWith("P-")) visit.token = "P-" + visit.token.split("-")[1];
     if (redFlag) alertTriage(visit, (summary.redFlags || []).slice(0, 2).join("; ") || "red-flag symptom reported at intake");
     save();
+    // The patient's own AI health summary, prepared now so it is ready the
+    // moment they ask. Not awaited: the token must not wait on it.
+    if (!visit.consent || visit.consent.record !== false) preparePatientReport(visit);
 
     logEvent(redFlag ? "red_flag" : "summary_generated", { visitId: visit.id, generated, documents: docs.length });
     logEvent("department_routed", {
@@ -3022,6 +3863,45 @@ async function api(req, res, pathname) {
   }
 
   // ---- one visit
+  // ---- the patient's continuous record, across every visit
+  m = pathname.match(/^\/api\/patients\/([\w-]+)\/record$/);
+  if (m && method === "GET") {
+    const doc = doctorOf(req);
+    if (!doc) return bad(res, 401, "Sign in required.");
+    const visitId = new URL(req.url, "http://x").searchParams.get("visit") || null;
+    const rec = patientRecord(m[1], { visitId });
+    if (!rec) return bad(res, 404, "Not found.");
+    logEvent("patient_record_opened", { patientId: m[1], clinicianId: doc.cid, fromVisit: visitId });
+    return ok(res, { record: rec });
+  }
+
+  // ---- a clinician corrects the record: remove, restore, confirm, edit, add
+  m = pathname.match(/^\/api\/patients\/([\w-]+)\/record\/edits$/);
+  if (m && method === "POST") {
+    const doc = doctorOf(req);
+    if (!doc) return bad(res, 401, "Sign in required.");
+    const p = store.patients.find((x) => x.id === m[1]);
+    if (!p) return bad(res, 404, "Not found.");
+    const b = await readBody(req);
+    const action = String(b.action || "");
+    if (!["remove", "restore", "confirm", "edit", "add"].includes(action)) return bad(res, 400, "Unknown correction.");
+    const type = String(b.type || "");
+    if (action === "add" && !["allergy", "condition", "medication"].includes(type)) return bad(res, 400, "Say what kind of fact this is.");
+    const value = String(b.value || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if ((action === "add" || action === "edit") && !value) return bad(res, 400, "Enter the corrected wording.");
+    if (action !== "add") {
+      const rec = patientRecord(p.id) || {};
+      const all = [].concat(rec.allergies || [], rec.conditions || [], rec.medications || []);
+      if (!b.key || !all.some((f) => f.key === b.key)) return bad(res, 404, "That entry is not on this patient's record.");
+    }
+    const edit = { id: id(), action, key: action === "add" ? null : String(b.key).slice(0, 200), type: type || null,
+      value: value || null, note: String(b.note || "").trim().slice(0, 300) || null, by: doc.cid, at: now() };
+    p.recordEdits = (p.recordEdits || []).concat(edit);
+    save();
+    logEvent("patient_record_corrected", { patientId: p.id, clinicianId: doc.cid, action, key: edit.key, type: edit.type });
+    return ok(res, { record: patientRecord(p.id, { visitId: b.visitId || null }) });
+  }
+
   m = pathname.match(/^\/api\/visits\/([\w-]+)$/);
   if (m && method === "GET") {
     const doc = doctorOf(req), pat = patientOf(req);
@@ -3056,6 +3936,7 @@ async function api(req, res, pathname) {
         patient: { name: p.name || "Patient", ageYears: p.ageYears, sex: p.sex, abhaNumber: p.abhaNumber,
                    heightCm: p.heightCm || null, weightKg: p.weightKg || null },
         documents: visitDocs.map(publicDoc),
+        clinicianNames: rxNames(visit),
       }),
     });
   }
@@ -3072,7 +3953,38 @@ async function api(req, res, pathname) {
     if (body.status === "WAITING") { visit.status = "WAITING"; visit.assessedAt = null; }
     if (typeof body.diagnosis === "string") visit.diagnosis = body.diagnosis;
     let recheck = false;
-    if (typeof body.prescription === "string" && body.prescription !== visit.prescription) { visit.prescription = body.prescription; recheck = true; }
+    if (typeof body.prescription === "string" && !body.rx && body.prescription !== visit.prescription) { visit.prescription = body.prescription; recheck = true; }
+
+    /* Structured prescription. Each change is a new version with what moved;
+       approval is a separate, attributed act, and changing an approved
+       prescription puts it back to draft until it is approved again. */
+    if (body.rx && typeof body.rx === "object") {
+      const items = cleanRxItems(body.rx.items);
+      const advice = String(body.rx.advice || "").trim().slice(0, 1000);
+      const prev = visit.rx || { items: legacyRxItems(visit.prescription), advice: "", version: 0 };
+      const diff = rxDiff(prev.items, items);
+      const changed = diff.added.length || diff.removed.length || diff.changed.length || (prev.advice || "") !== advice;
+      if (changed || !visit.rx) {
+        const version = (prev.version || 0) + 1;
+        visit.rx = { items, advice, version, status: "draft", updatedAt: now(), updatedBy: s.cid, approvedAt: null, approvedBy: null };
+        const aiIds = [].concat(body.rx.fromAiOption || []).map(String);
+        const fromAi = visit.aiTreatment ? visit.aiTreatment.options
+          .filter((o) => aiIds.includes(o.id) && o.status === "adopted")
+          .map((o) => ({ optionId: o.id, title: o.title, suggestedAt: visit.aiTreatment.at })) : [];
+        visit.rxHistory = (visit.rxHistory || []).concat({ version, at: now(), by: s.cid, items, advice, diff,
+          fromAi: fromAi.length ? fromAi : null,
+          reason: String(body.rx.reason || "").trim().slice(0, 300) || null });
+        visit.prescription = rxText(items, advice);
+        recheck = true;
+        logEvent("rx_saved", { visitId: visit.id, by: s.cid, version, added: diff.added.length, removed: diff.removed.length, changed: diff.changed.length });
+      }
+      if (body.rx.approve || body.status === "ASSESSED") {
+        visit.rx.status = "approved"; visit.rx.approvedAt = now(); visit.rx.approvedBy = s.cid;
+        const h = visit.rxHistory[visit.rxHistory.length - 1];
+        if (h) { h.approvedAt = visit.rx.approvedAt; h.approvedBy = s.cid; }
+        logEvent("rx_approved", { visitId: visit.id, by: s.cid, version: visit.rx.version, lines: items.length });
+      }
+    }
 
     /* Height and weight, taken when the patient comes in. The kiosk may have
        them already (the patient estimates); a nurse's reading replaces it,
@@ -3146,6 +4058,7 @@ async function api(req, res, pathname) {
 
     if (recheck && visit.summary) {
       visit.summary.interactions = interactionsFor(visit);
+      if (visit.rx) visit.rxSafety = safetyFor(visit, visit.rx.items);
       logEvent("interactions_rechecked", { visitId: visit.id, count: visit.summary.interactions.length });
     }
 
@@ -3161,7 +4074,7 @@ async function api(req, res, pathname) {
     }
     save();
     logEvent("visit_updated", { visitId: visit.id, keys: Object.keys(body) });
-    return ok(res, { visit });
+    return ok(res, { visit: Object.assign({}, visit, { clinicianNames: rxNames(visit) }) });
   }
 
   return bad(res, 404, "No such endpoint.");
