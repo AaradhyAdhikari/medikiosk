@@ -2,7 +2,7 @@
   "name": "medikiosk",
   "version": "1.0.0",
   "private": true,
-  "description": "AI clinical history intake for AYUSH OPDs — SIH26047, Ministry of Ayush",
+  "description": "AI and rule-based clinical intake, diagnosis support and care navigation",
   "scripts": {
     "start": "node server.js"
   },

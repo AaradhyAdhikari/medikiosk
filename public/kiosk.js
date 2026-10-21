@@ -694,7 +694,7 @@ function scLang() {
   var live = window.liveLangs();
   var soon = window.LANGS_SOON;
 
-  body.innerHTML = '<span class="eyebrow">Ministry of Ayush · OPD Intake</span>' +
+  body.innerHTML = '<span class="eyebrow">MediKiosk · OPD Intake</span>' +
     '<h1 class="q">अपनी भाषा चुनिए</h1><p class="q-en">Choose your language</p>' +
     '<div class="chips two">' + live.map(function (o, i) {
       // Each button is rendered in its own script, and marked if this machine

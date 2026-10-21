@@ -62,7 +62,7 @@ const PORT = Number(process.env.PORT || 3000);
    setting a single key in .env is enough; AI_PROVIDER only matters if you
    set several. Bound properly, with the timeout, further down. */
 const { provider: AI_PROVIDER, model: AI_MODEL } = require("./ai").configure(process.env);
-const HOSPITAL = process.env.HOSPITAL_NAME || "All India Institute of Ayurveda";
+const HOSPITAL = process.env.HOSPITAL_NAME || "MediKiosk Demo Hospital";
 /* The address a phone at the check-in desk can actually reach. The token QR
    has to carry an absolute URL, and `localhost:3000` — which is what the
    kiosk's own browser sees — is useless to anyone else's device. Set this to
@@ -4147,7 +4147,7 @@ async function api(req, res, pathname) {
   server.listen(PORT, () => {
     const line = "─".repeat(58);
     console.log(`\n  ${line}`);
-    console.log("   MediKiosk  ·  SIH26047  ·  Ministry of Ayush");
+    console.log("   MediKiosk  ·  AI health kiosk");
     console.log(`  ${line}`);
     console.log(`\n   Open:      http://localhost:${PORT}`);
     if (store.clinicians.length === 0) {
